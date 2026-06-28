@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -28,7 +29,11 @@ def get_api_credential_deriver() -> ApiCredentialDeriver:
 
 @router.get("/wallet", response_model=WalletResponse)
 async def wallet_status(session: AsyncSession = Depends(get_session)) -> WalletResponse:
-    return await get_wallet_status(session)
+    try:
+        return await get_wallet_status(session)
+    except OperationalError as exc:
+        _raise_wallet_table_missing_if_needed(exc)
+        raise
 
 
 @router.post("/wallet/configure", response_model=WalletResponse)
@@ -37,8 +42,12 @@ async def configure_wallet_route(
     session: AsyncSession = Depends(get_session),
     deriver: ApiCredentialDeriver = Depends(get_api_credential_deriver),
 ) -> WalletResponse:
-    credential = await configure_wallet(request, session, deriver=deriver)
-    return wallet_response(credential)
+    try:
+        credential = await configure_wallet(request, session, deriver=deriver)
+        return wallet_response(credential)
+    except OperationalError as exc:
+        _raise_wallet_table_missing_if_needed(exc)
+        raise
 
 
 @router.post("/wallet/derive-api-credentials", response_model=WalletResponse)
@@ -46,13 +55,21 @@ async def derive_wallet_api_credentials_route(
     session: AsyncSession = Depends(get_session),
     deriver: ApiCredentialDeriver = Depends(get_api_credential_deriver),
 ) -> WalletResponse:
-    credential = await derive_api_credentials(session, deriver=deriver)
-    return wallet_response(credential)
+    try:
+        credential = await derive_api_credentials(session, deriver=deriver)
+        return wallet_response(credential)
+    except OperationalError as exc:
+        _raise_wallet_table_missing_if_needed(exc)
+        raise
 
 
 @router.post("/wallet/test", response_model=WalletTestResponse)
 async def test_wallet_credentials_route(session: AsyncSession = Depends(get_session)) -> WalletTestResponse:
-    return await test_wallet_credentials(session)
+    try:
+        return await test_wallet_credentials(session)
+    except OperationalError as exc:
+        _raise_wallet_table_missing_if_needed(exc)
+        raise
 
 
 @router.post("/wallet/test-derive", response_model=WalletTestDeriveResponse)
@@ -67,5 +84,15 @@ async def test_derive_wallet_api_credentials_route(
 
 @router.delete("/wallet", response_model=WalletResponse)
 async def delete_wallet_route(session: AsyncSession = Depends(get_session)) -> WalletResponse:
-    await delete_wallet_credentials(session)
-    return WalletResponse(configured=False, api_key_configured=False)
+    try:
+        await delete_wallet_credentials(session)
+        return WalletResponse(configured=False, api_key_configured=False)
+    except OperationalError as exc:
+        _raise_wallet_table_missing_if_needed(exc)
+        raise
+
+
+def _raise_wallet_table_missing_if_needed(exc: OperationalError) -> None:
+    detail = str(exc.orig if getattr(exc, "orig", None) is not None else exc)
+    if "wallet_credentials" in detail and ("no such table" in detail.lower() or "does not exist" in detail.lower()):
+        raise AppError("WALLET_TABLE_MISSING", technical_detail=detail, status_code=503) from exc

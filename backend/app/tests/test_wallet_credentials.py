@@ -1,9 +1,12 @@
 from collections.abc import AsyncIterator
 import logging
+import sqlite3
 import sys
 from types import ModuleType
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -12,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.routes.wallet import get_api_credential_deriver
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.base import Base
+from app.db.base import Base, utc_now
 from app.db.session import get_session
 from app.main import app
 from app.models.wallet import WalletCredential
@@ -100,6 +103,47 @@ def test_private_key_validation_rejects_invalid_keys() -> None:
         validate_private_key("not-a-key")
 
     assert exc.value.code == "WALLET_PRIVATE_KEY_INVALID"
+
+
+def test_migration_creates_wallet_credentials_table(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "migrated.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    get_settings.cache_clear()
+    try:
+        alembic_config = Config("alembic.ini")
+        command.upgrade(alembic_config, "head")
+    finally:
+        get_settings.cache_clear()
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(wallet_credentials)").fetchall()
+        }
+        indexes = {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(wallet_credentials)").fetchall()
+        }
+
+    assert {
+        "id",
+        "wallet_address",
+        "funder_address",
+        "signature_type",
+        "chain_id",
+        "encrypted_private_key",
+        "encrypted_api_key",
+        "encrypted_api_secret",
+        "encrypted_api_passphrase",
+        "api_credentials_created_at",
+        "is_configured",
+        "is_active",
+        "last_validated_at",
+        "last_error",
+        "created_at",
+        "updated_at",
+    }.issubset(columns)
+    assert "ix_wallet_credentials_is_active" in indexes
 
 
 @pytest.mark.asyncio
@@ -228,6 +272,88 @@ def test_configure_endpoint_uses_singleton_wallet_record(sessionmaker: async_ses
             assert rows[0].wallet_address == "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF"
 
     asyncio.run(assert_singleton())
+
+
+def test_wallet_configure_returns_structured_error_when_table_missing(tmp_path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path}/missing-wallet-table.db"
+    engine = create_async_engine(database_url)
+    maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_api_credential_deriver] = lambda: FakeCredentialDeriver()
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/wallet/configure", json={"private_key": PRIVATE_KEY})
+    finally:
+        app.dependency_overrides.clear()
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+    body = response.json()
+    assert response.status_code == 503
+    assert body["code"] == "WALLET_TABLE_MISSING"
+    assert "Run: alembic upgrade head" in body["recovery_actions"]
+    assert "sqlite3.OperationalError" not in response.text
+
+
+def test_wallet_configure_endpoint_succeeds_when_table_exists(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_api_credential_deriver] = lambda: FakeCredentialDeriver()
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/wallet/configure", json={"private_key": PRIVATE_KEY})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is True
+
+
+@pytest.mark.asyncio
+async def test_configure_deactivates_duplicate_active_wallets(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        now = utc_now()
+        session.add_all(
+            [
+                WalletCredential(
+                    wallet_address="0x1111111111111111111111111111111111111111",
+                    signature_type=3,
+                    chain_id=137,
+                    encrypted_private_key="encrypted-one",
+                    is_configured=True,
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                WalletCredential(
+                    wallet_address="0x2222222222222222222222222222222222222222",
+                    signature_type=3,
+                    chain_id=137,
+                    encrypted_private_key="encrypted-two",
+                    is_configured=True,
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with sessionmaker() as session:
+        await configure_wallet(WalletConfigureRequest(private_key=PRIVATE_KEY, derive_api_credentials=False), session)
+
+    async with sessionmaker() as session:
+        rows = (await session.execute(select(WalletCredential))).scalars().all()
+        assert sum(1 for row in rows if row.is_active) == 1
 
 
 @pytest.mark.asyncio

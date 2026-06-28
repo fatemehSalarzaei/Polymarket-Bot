@@ -10,8 +10,8 @@ class WalletCredential(TimestampMixin, Base):
     __tablename__ = "wallet_credentials"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    wallet_address: Mapped[str] = mapped_column(String(64), nullable=False)
-    funder_address: Mapped[str | None] = mapped_column(String(64))
+    wallet_address: Mapped[str] = mapped_column(String(128), nullable=False)
+    funder_address: Mapped[str | None] = mapped_column(String(128))
     signature_type: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     chain_id: Mapped[int] = mapped_column(Integer, default=137, nullable=False)
     encrypted_private_key: Mapped[str] = mapped_column(Text, nullable=False)

@@ -18,6 +18,17 @@ CREDENTIAL_ENCRYPTION_KEY=your-generated-key
 
 Never commit `.env` or any real wallet/API credentials to Git.
 
+## Database Migration
+
+After pulling wallet feature changes, run:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+If using SQLite locally, confirm `DATABASE_URL` points to the same SQLite file used by the running backend. A `WALLET_TABLE_MISSING` error means the backend is connected to a database where `wallet_credentials` has not been migrated yet.
+
 ## Configure From UI
 
 Open `/wallet` in the frontend and enter:

@@ -184,6 +184,17 @@ ERROR_DEFINITIONS: dict[str, ErrorDefinition] = {
         source="wallet_credentials",
         recovery_actions=["Open the Wallet page and configure a dedicated trading wallet"],
     ),
+    "WALLET_TABLE_MISSING": ErrorDefinition(
+        title="Wallet credentials table is missing",
+        message="Wallet credentials table does not exist. Run database migrations.",
+        severity="error",
+        source="wallet_credentials",
+        recovery_actions=[
+            "Run: alembic upgrade head",
+            "For local SQLite, make sure DATABASE_URL points to the expected database file.",
+            "Restart backend after migration.",
+        ],
+    ),
     "WALLET_API_CREDENTIALS_MISSING": ErrorDefinition(
         title="Polymarket API credentials are missing",
         message="The wallet is configured, but Polymarket API credentials have not been created or derived yet.",
