@@ -12,7 +12,9 @@ from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
 from app.models.tick import OrderbookSnapshot
+from app.services.market_discovery import MarketDiscoveryService
 from app.services.polymarket_clob import normalize_orderbook
+from app.services.polymarket_errors import PolymarketHttpError
 
 
 class FakeGammaClient:
@@ -43,6 +45,16 @@ class FakeClobClient:
     async def get_orderbook(self, token_id: str):
         self.token_ids.append(token_id)
         return normalize_orderbook(_orderbook_payload(token_id), fallback_token_id=token_id)
+
+
+class TimeoutClobClient:
+    async def get_orderbook(self, token_id: str):
+        raise PolymarketHttpError(
+            code="POLYMARKET_CLOB_TIMEOUT",
+            message="timeout",
+            endpoint="/book",
+            technical_detail=f"timeout for {token_id}",
+        )
 
 
 @pytest.fixture()
@@ -104,6 +116,104 @@ def test_get_current_market_orderbook_persists_up_and_down_snapshots(
     import asyncio
 
     asyncio.run(assert_snapshots_saved())
+
+
+def test_get_current_market_orderbook_returns_structured_timeout_when_no_cache(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_gamma_client] = lambda: FakeGammaClient()
+    app.dependency_overrides[get_clob_client] = lambda: TimeoutClobClient()
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/markets/current/orderbook")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "POLYMARKET_CLOB_TIMEOUT"
+    assert "httpx.ReadTimeout" not in response.text
+
+
+def test_get_current_market_orderbook_serves_cached_snapshots_on_timeout(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    import asyncio
+
+    async def seed_cache() -> None:
+        async with sessionmaker() as session:
+            from app.models.market import Market
+
+            start_ts = MarketDiscoveryService.compute_cycle_start(datetime.now(UTC))
+            event_slug = MarketDiscoveryService.build_btc_15m_slug(start_ts)
+            market = Market(
+                event_slug=event_slug,
+                market_slug=f"{event_slug}-market",
+                condition_id="condition-1",
+                question="BTC Up or Down",
+                active=True,
+                closed=False,
+                start_ts=start_ts,
+                end_ts=start_ts + 900,
+                up_token_id="up-token",
+                down_token_id="down-token",
+                raw_event={},
+                raw_market={},
+            )
+            session.add(market)
+            await session.flush()
+            session.add_all(
+                [
+                    OrderbookSnapshot(
+                        market_id=market.id,
+                        token_id="up-token",
+                        outcome="UP",
+                        best_bid="0.48",
+                        best_ask="0.51",
+                        midpoint="0.495",
+                        spread="0.03",
+                        bids=[],
+                        asks=[],
+                    ),
+                    OrderbookSnapshot(
+                        market_id=market.id,
+                        token_id="down-token",
+                        outcome="DOWN",
+                        best_bid="0.46",
+                        best_ask="0.53",
+                        midpoint="0.495",
+                        spread="0.07",
+                        bids=[],
+                        asks=[],
+                    ),
+                ]
+            )
+            await session.commit()
+
+    asyncio.run(seed_cache())
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        async with sessionmaker() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_gamma_client] = lambda: FakeGammaClient()
+    app.dependency_overrides[get_clob_client] = lambda: TimeoutClobClient()
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/markets/current/orderbook")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["up"]["best_ask"] == "0.51000000"
+    assert response.json()["down"]["best_ask"] == "0.53000000"
 
 
 def _orderbook_payload(token_id: str) -> dict:

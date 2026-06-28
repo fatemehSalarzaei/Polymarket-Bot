@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     polymarket_gamma_host: AnyHttpUrl = "https://gamma-api.polymarket.com"
     polymarket_market_wss: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     polymarket_rtds_wss: str = "wss://ws-live-data.polymarket.com"
+    polymarket_http_connect_timeout: float = 3.0
+    polymarket_http_read_timeout: float = 20.0
+    polymarket_http_write_timeout: float = 5.0
+    polymarket_http_pool_timeout: float = 5.0
+    polymarket_http_max_retries: int = 3
+    polymarket_http_retry_base_delay_seconds: float = 0.5
     chainlink_start_tick_tolerance_seconds: int = 30
     polymarket_user_wss: str = "wss://clob.polymarket.com/ws/user"
     polymarket_chain_id: int = 137

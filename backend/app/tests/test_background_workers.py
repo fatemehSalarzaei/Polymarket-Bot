@@ -22,6 +22,8 @@ from app.models.tick import ChainlinkTick, OrderbookSnapshot
 from app.services.strategy_context_builder import StrategyContextBuilder
 from app.tasks.settlement_tasks import settle_finished_markets_job
 from app.tasks.strategy_tasks import evaluate_current_strategy_job
+from app.tasks.market_tasks import fetch_current_orderbook_job
+from app.services.polymarket_errors import PolymarketHttpError
 
 
 @pytest.fixture()
@@ -52,6 +54,7 @@ def test_celery_app_config_loads_without_broker_connection() -> None:
     assert celery_app.main == "polymarket_bot"
     assert "app.tasks.strategy.evaluate_current" in celery_app.tasks
     assert celery_app.conf.beat_schedule["evaluate-current-strategy"]["schedule"] == 5.0
+    assert celery_app.conf.beat_schedule["fetch-current-orderbook"]["schedule"] == 15.0
 
 
 @pytest.mark.asyncio
@@ -118,6 +121,20 @@ async def test_strategy_context_builder_does_not_require_chainlink_ticks(
     assert result.context.btc_current_price is None
     assert result.context.up_ask == Decimal("0.90")
     assert result.context.down_ask == Decimal("0.11")
+
+
+@pytest.mark.asyncio
+async def test_orderbook_task_catches_polymarket_timeout(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sessionmaker() as session:
+        market = _market("task-timeout", start_delta_seconds=-780, end_delta_seconds=120)
+        session.add(market)
+        await session.commit()
+
+    result = await fetch_current_orderbook_job(sessionmaker=sessionmaker, clob_client=TimeoutClobClient())
+
+    assert result == {"persisted": 0, "reason": "POLYMARKET_CLOB_TIMEOUT", "recoverable": True}
 
 
 @pytest.mark.asyncio
@@ -232,6 +249,16 @@ async def _seed_orderbooks(session: AsyncSession, market: Market) -> None:
             ),
         ]
     )
+
+
+class TimeoutClobClient:
+    async def get_orderbook(self, token_id: str):
+        raise PolymarketHttpError(
+            code="POLYMARKET_CLOB_TIMEOUT",
+            message="timeout",
+            endpoint="/book",
+            technical_detail=f"timeout for {token_id}",
+        )
 
 
 async def _seed_order(

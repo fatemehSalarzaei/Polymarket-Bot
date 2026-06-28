@@ -17,6 +17,7 @@ from app.core.errors import AppError, build_error_response, code_from_detail
 from app.core.logging import configure_logging
 from app.services.dashboard_broadcaster import dashboard_broadcaster
 from app.services.dashboard_event_bus import subscribe_dashboard_events
+from app.services.polymarket_errors import PolymarketHttpError
 
 
 configure_logging()
@@ -81,6 +82,16 @@ async def http_status_exception_handler(request: Request, exc: httpx.HTTPStatusE
     code = "POLYMARKET_GAMMA_HTTP_ERROR" if "gamma" in url else "POLYMARKET_CLOB_HTTP_ERROR"
     payload = build_error_response(code, technical_detail=str(exc), request_id=_request_id(request))
     return JSONResponse(status_code=502, content=payload.model_dump(mode="json"))
+
+
+@app.exception_handler(PolymarketHttpError)
+async def polymarket_http_error_handler(request: Request, exc: PolymarketHttpError) -> JSONResponse:
+    payload = build_error_response(
+        exc.code,
+        technical_detail=exc.technical_detail,
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
 
 
 @app.exception_handler(Exception)

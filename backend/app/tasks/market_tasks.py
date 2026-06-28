@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
+from app.core.errors import error_payload
 from app.db.session import get_sessionmaker
 from app.models.market import Market
 from app.schemas.market import MarketResponse
@@ -17,9 +18,11 @@ from app.services.market_discovery import MarketDiscoveryService, persist_active
 from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.orderbook import persist_orderbook_snapshot
 from app.services.polymarket_clob import PolymarketClobClient
+from app.services.polymarket_errors import PolymarketHttpError
 from app.services.polymarket_gamma import PolymarketGammaClient
 
 logger = logging.getLogger(__name__)
+_ORDERBOOK_FETCH_IN_PROGRESS = False
 
 
 @celery_app.task(name="app.tasks.market.discover_current_market")
@@ -57,9 +60,29 @@ async def fetch_current_orderbook_job(
     sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     clob_client: PolymarketClobClient | None = None,
 ) -> dict[str, Any]:
+    global _ORDERBOOK_FETCH_IN_PROGRESS
+    if _ORDERBOOK_FETCH_IN_PROGRESS:
+        logger.warning("orderbook_fetch_skipped", extra={"reason": "ORDERBOOK_FETCH_ALREADY_RUNNING"})
+        return {"persisted": 0, "reason": "ORDERBOOK_FETCH_ALREADY_RUNNING", "recoverable": True}
+    _ORDERBOOK_FETCH_IN_PROGRESS = True
+    try:
+        return await _fetch_current_orderbook_job(sessionmaker=sessionmaker, clob_client=clob_client)
+    finally:
+        _ORDERBOOK_FETCH_IN_PROGRESS = False
+
+
+async def _fetch_current_orderbook_job(
+    *,
+    sessionmaker: async_sessionmaker[AsyncSession] | None = None,
+    clob_client: PolymarketClobClient | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
     maker = sessionmaker or get_sessionmaker()
-    client = clob_client or PolymarketClobClient(str(settings.polymarket_clob_host))
+    client = clob_client or PolymarketClobClient(
+        str(settings.polymarket_clob_host),
+        read_timeout=5,
+        max_retries=1,
+    )
 
     async with maker() as session:
         market = await _current_market(session)
@@ -67,8 +90,25 @@ async def fetch_current_orderbook_job(
             logger.warning("orderbook_fetch_skipped", extra={"reason": "CURRENT_MARKET_MISSING"})
             return {"persisted": 0, "reason": "CURRENT_MARKET_MISSING"}
 
-        up_orderbook = await client.get_orderbook(market.up_token_id)
-        down_orderbook = await client.get_orderbook(market.down_token_id)
+        try:
+            up_orderbook = await client.get_orderbook(market.up_token_id)
+            down_orderbook = await client.get_orderbook(market.down_token_id)
+        except PolymarketHttpError as exc:
+            logger.warning(
+                "orderbook_fetch_recoverable_polymarket_error",
+                extra={"code": exc.code, "endpoint": exc.endpoint, "technical_detail": exc.technical_detail},
+            )
+            await publish_dashboard_event("error", error_payload(exc.code, technical_detail=exc.technical_detail))
+            await publish_dashboard_event(
+                "market_ws_status",
+                {
+                    "status": "rest_orderbook_error",
+                    "message": exc.message,
+                    "code": exc.code,
+                    "endpoint": exc.endpoint,
+                },
+            )
+            return {"persisted": 0, "reason": exc.code, "recoverable": True}
         up_snapshot = await persist_orderbook_snapshot(session, market=market, outcome="UP", orderbook=up_orderbook)
         down_snapshot = await persist_orderbook_snapshot(session, market=market, outcome="DOWN", orderbook=down_orderbook)
         await session.commit()
