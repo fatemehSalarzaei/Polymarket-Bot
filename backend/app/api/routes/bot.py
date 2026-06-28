@@ -22,13 +22,47 @@ async def get_bot_status() -> BotStatus:
 
 
 @router.post("/bot/start", response_model=BotStatus)
-async def start_bot() -> BotStatus:
-    return await bot_state_service.start()
+async def start_bot(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BotStatus:
+    status = await bot_state_service.start()
+    session.add(
+        AuditLog(
+            actor="dashboard",
+            action="bot.start",
+            entity_type="bot",
+            entity_id="runtime",
+            before={"running": False},
+            after=status.model_dump(mode="json"),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    )
+    await session.commit()
+    return status
 
 
 @router.post("/bot/stop", response_model=BotStatus)
-async def stop_bot() -> BotStatus:
-    return await bot_state_service.stop()
+async def stop_bot(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BotStatus:
+    status = await bot_state_service.stop()
+    session.add(
+        AuditLog(
+            actor="dashboard",
+            action="bot.stop",
+            entity_type="bot",
+            entity_id="runtime",
+            before={"running": True},
+            after=status.model_dump(mode="json"),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    )
+    await session.commit()
+    return status
 
 
 @router.get("/bot/geoblock-status", response_model=GeoblockStatus)

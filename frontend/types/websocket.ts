@@ -24,6 +24,8 @@ export type BotStatus = {
   running: boolean;
   market_ws_fresh?: boolean;
   rtds_fresh?: boolean;
+  background_workers_required?: boolean;
+  message?: string | null;
 };
 
 export type RiskStatus = {
@@ -39,5 +41,7 @@ export type DashboardWsEvent =
   | { type: "order_update"; data: OrderUpdate }
   | { type: "bot_status"; data: BotStatus }
   | { type: "risk_status"; data: RiskStatus }
+  | { type: "pnl_summary"; data: PnlSummary }
   | { type: "error"; data: { code: string; message: string } };
+import type { PnlSummary } from "@/types/pnl";
 

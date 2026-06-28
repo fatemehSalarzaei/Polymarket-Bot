@@ -28,6 +28,8 @@ class BotStatus(BaseModel):
     running: bool = False
     market_ws_fresh: bool = False
     rtds_fresh: bool = False
+    background_workers_required: bool = True
+    message: str | None = None
 
 
 class RiskStatus(BaseModel):
@@ -49,7 +51,7 @@ class DashboardWsEvent(BaseModel):
         "order_update",
         "bot_status",
         "risk_status",
+        "pnl_summary",
         "error",
     ]
     data: dict[str, Any] = Field(default_factory=dict)
-

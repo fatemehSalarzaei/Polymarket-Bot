@@ -15,6 +15,7 @@ from app.services.dashboard_broadcaster import DashboardBroadcaster
 
 ConnectFactory = Callable[[str], Any]
 SleepFn = Callable[[float], Awaitable[None]]
+TickHandler = Callable[[BtcPriceTick], Awaitable[None]]
 
 
 class RTDSWebSocketService:
@@ -26,12 +27,14 @@ class RTDSWebSocketService:
         connect: ConnectFactory | None = None,
         sleep: SleepFn = asyncio.sleep,
         max_backoff_seconds: float = 30,
+        on_tick: TickHandler | None = None,
     ) -> None:
         self.url = url
         self.broadcaster = broadcaster
         self._connect = connect or websockets.connect
         self._sleep = sleep
         self._max_backoff_seconds = max_backoff_seconds
+        self._on_tick = on_tick
         self.reconnect_attempts = 0
 
     async def run(self, *, max_messages: int | None = None, max_attempts: int | None = None) -> None:
@@ -51,6 +54,8 @@ class RTDSWebSocketService:
                     async for raw_message in websocket:
                         for payload in _message_payloads(raw_message):
                             tick = parse_btc_price_tick(payload)
+                            if self._on_tick is not None:
+                                await self._on_tick(tick)
                             await self.broadcaster.broadcast("btc_price_tick", tick, freshness_key="rtds_btc")
                             handled += 1
                             if max_messages is not None and handled >= max_messages:
@@ -142,4 +147,3 @@ def _parse_timestamp(value: Any) -> datetime | None:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     return None
-

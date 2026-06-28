@@ -42,6 +42,59 @@ services:
       redis:
         condition: service_healthy
 
+  celery_worker:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env.example
+    environment:
+      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
+      REDIS_URL: redis://redis:6379/0
+      TRADING_ENABLED: "false"
+      REAL_ORDER_DRY_RUN: "true"
+    command: celery -A app.celery_app.celery_app worker --loglevel=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env.example
+    environment:
+      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
+      REDIS_URL: redis://redis:6379/0
+      TRADING_ENABLED: "false"
+      REAL_ORDER_DRY_RUN: "true"
+    command: celery -A app.celery_app.celery_app beat --loglevel=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  realtime_runner:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env.example
+    environment:
+      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
+      REDIS_URL: redis://redis:6379/0
+      TRADING_ENABLED: "false"
+      REAL_ORDER_DRY_RUN: "true"
+    command: python -m app.workers.realtime_runner
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
   frontend:
     build:
       context: ./frontend
@@ -55,4 +108,3 @@ services:
 
 volumes:
   postgres_data:
-

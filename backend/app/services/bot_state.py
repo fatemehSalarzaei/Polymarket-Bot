@@ -16,6 +16,7 @@ class BotStateService:
             running=self._running,
             market_ws_fresh=self._broadcaster.freshness.is_fresh("market_ws", max_age_seconds=10),
             rtds_fresh=self._broadcaster.freshness.is_fresh("rtds_btc", max_age_seconds=10),
+            message="Run celery_worker, celery_beat, and realtime_runner for background execution.",
         )
 
     async def start(self) -> BotStatus:
@@ -32,4 +33,3 @@ class BotStateService:
 
 
 bot_state_service = BotStateService()
-
