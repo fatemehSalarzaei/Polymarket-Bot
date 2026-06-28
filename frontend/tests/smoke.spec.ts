@@ -50,6 +50,26 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: [] });
       return;
     }
+    if (path.endsWith("/wallet/configure")) {
+      await route.fulfill({ json: walletConfiguredFixture });
+      return;
+    }
+    if (path.endsWith("/wallet/derive-api-credentials")) {
+      await route.fulfill({ json: walletConfiguredFixture });
+      return;
+    }
+    if (path.endsWith("/wallet/test")) {
+      await route.fulfill({ json: walletTestFixture });
+      return;
+    }
+    if (path.endsWith("/wallet")) {
+      if (route.request().method() === "DELETE") {
+        await route.fulfill({ json: walletEmptyFixture });
+        return;
+      }
+      await route.fulfill({ json: walletConfiguredFixture });
+      return;
+    }
 
     await route.fulfill({ status: 404, json: { detail: "not mocked" } });
   });
@@ -98,6 +118,31 @@ test("logs load", async ({ page }) => {
   await page.goto("/logs");
   await expect(page.getByRole("heading", { name: "Logs" })).toBeVisible();
   await expect(page.getByText("strategy_settings.patch")).toBeVisible();
+});
+
+test("wallet page renders status", async ({ page }) => {
+  await page.goto("/wallet");
+  await expect(page.getByRole("heading", { name: "Polymarket Credentials" })).toBeVisible();
+  await expect(page.getByText(walletConfiguredFixture.wallet_address)).toBeVisible();
+  await expect(page.getByText(walletConfiguredFixture.api_key_masked)).toBeVisible();
+});
+
+test("wallet configure form posts and never displays private key", async ({ page }) => {
+  const privateKey = "0x0000000000000000000000000000000000000000000000000000000000000001";
+  await page.goto("/wallet");
+  await page.getByLabel("Private Key").fill(privateKey);
+  await page.getByRole("button", { name: "Save & Derive API Credentials" }).click();
+  await expect(page.getByText("Wallet configuration saved")).toBeVisible();
+  await expect(page.getByLabel("Private Key")).toHaveValue("");
+  await expect(page.getByText(privateKey)).toHaveCount(0);
+});
+
+test("wallet test and delete buttons call backend", async ({ page }) => {
+  await page.goto("/wallet");
+  await page.getByRole("button", { name: "Test Credentials" }).click();
+  await expect(page.getByText(walletTestFixture.message)).toBeVisible();
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Wallet configuration deleted")).toBeVisible();
 });
 
 const marketFixture = {
@@ -214,6 +259,41 @@ const logFixture = {
   ip_address: "127.0.0.1",
   user_agent: "playwright",
   created_at: "2026-06-27T12:30:00Z",
+};
+
+const walletConfiguredFixture = {
+  configured: true,
+  wallet_address: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+  funder_address: null,
+  signature_type: 3,
+  chain_id: 137,
+  api_key_configured: true,
+  api_key_masked: "api-ke...1234",
+  last_validated_at: "2026-06-27T12:30:00Z",
+  last_error: null,
+  updated_at: "2026-06-27T12:30:00Z",
+};
+
+const walletEmptyFixture = {
+  configured: false,
+  wallet_address: null,
+  funder_address: null,
+  signature_type: null,
+  chain_id: null,
+  api_key_configured: false,
+  api_key_masked: null,
+  last_validated_at: null,
+  last_error: null,
+  updated_at: null,
+};
+
+const walletTestFixture = {
+  ok: true,
+  message: "Wallet credentials are configured.",
+  wallet_address: walletConfiguredFixture.wallet_address,
+  api_key_configured: true,
+  trading_ready: true,
+  issues: [],
 };
 
 function snapshot(outcome: string, tokenId: string) {

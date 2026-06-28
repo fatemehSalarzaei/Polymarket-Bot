@@ -113,6 +113,40 @@ async def test_geoblock_blocks_real_order(sessionmaker: async_sessionmaker[Async
 
 
 @pytest.mark.asyncio
+async def test_real_trading_blocks_when_wallet_missing(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    fake_sdk = FakeSdkClient(PlaceOrderResult(submitted=True, status="SUBMITTED", external_order_id="order-1"))
+    result = await _execute(
+        sessionmaker,
+        sdk_client=fake_sdk,
+        dry_run=False,
+        trading_enabled=True,
+        wallet_configured=False,
+        api_credentials_configured=False,
+    )
+
+    assert result.status == "BLOCKED"
+    assert "WALLET_CONFIG_MISSING" in result.reasons
+    assert fake_sdk.requests == []
+
+
+@pytest.mark.asyncio
+async def test_real_trading_blocks_when_api_credentials_missing(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    fake_sdk = FakeSdkClient(PlaceOrderResult(submitted=True, status="SUBMITTED", external_order_id="order-1"))
+    result = await _execute(
+        sessionmaker,
+        sdk_client=fake_sdk,
+        dry_run=False,
+        trading_enabled=True,
+        wallet_configured=True,
+        api_credentials_configured=False,
+    )
+
+    assert result.status == "BLOCKED"
+    assert "WALLET_API_CREDENTIALS_MISSING" in result.reasons
+    assert fake_sdk.requests == []
+
+
+@pytest.mark.asyncio
 async def test_mocked_sdk_submit_success_persists_real_order(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     fake_sdk = FakeSdkClient(
         PlaceOrderResult(
@@ -253,6 +287,8 @@ async def _execute(
     dry_run: bool,
     trading_enabled: bool,
     geoblock_status: GeoblockStatus | None = None,
+    wallet_configured: bool = True,
+    api_credentials_configured: bool = True,
 ):
     async with sessionmaker() as session:
         market = _market()
@@ -263,7 +299,12 @@ async def _execute(
         context = _context(market_id=market.id, trading_enabled=trading_enabled)
         decision = await StrategyEngine().evaluate(context)
         persisted_decision = await persist_strategy_decision(session, market=market, decision=decision)
-        sdk = BackendOnlyClobSdkWrapper(credentials_configured=True, sdk_client=sdk_client)
+        sdk = BackendOnlyClobSdkWrapper(
+            credentials_configured=wallet_configured and api_credentials_configured,
+            sdk_client=sdk_client,
+            wallet_configured=wallet_configured,
+            api_credentials_configured=api_credentials_configured,
+        )
         engine = ExecutionEngine(sdk=sdk, dry_run=dry_run)
         return await engine.submit_real_order(
             session,

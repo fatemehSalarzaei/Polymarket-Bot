@@ -31,7 +31,7 @@ celery_app.conf.update(
         },
         "fetch-current-orderbook": {
             "task": "app.tasks.market.fetch_current_orderbook",
-            "schedule": 5.0,
+            "schedule": 15.0,
         },
         "evaluate-current-strategy": {
             "task": "app.tasks.strategy.evaluate_current",

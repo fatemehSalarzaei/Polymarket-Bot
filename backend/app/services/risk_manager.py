@@ -29,6 +29,7 @@ class RiskManager:
         *,
         geoblock_blocked: bool | None = None,
         credentials_configured: bool = False,
+        credentials_missing_reason: str | None = None,
         daily_loss_usd: Decimal = Decimal("0"),
     ) -> RiskResult:
         reasons: list[str] = []
@@ -39,7 +40,7 @@ class RiskManager:
         if geoblock_blocked:
             reasons.append("GEOBLOCK_BLOCKED")
         if not credentials_configured:
-            reasons.append("CREDENTIALS_MISSING")
+            reasons.append(credentials_missing_reason or "WALLET_API_CREDENTIALS_MISSING")
         if daily_loss_usd >= context.max_daily_loss_usd:
             reasons.append("DAILY_LOSS_LIMIT_REACHED")
         if decision.decision == "NO_TRADE":

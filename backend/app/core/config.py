@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = "postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot"
     redis_url: RedisDsn = "redis://redis:6379/0"
+    credential_encryption_key: str = ""
 
     polymarket_clob_host: AnyHttpUrl = "https://clob.polymarket.com"
     polymarket_gamma_host: AnyHttpUrl = "https://gamma-api.polymarket.com"

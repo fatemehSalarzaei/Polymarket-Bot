@@ -4,6 +4,7 @@ import type { AuditLog } from "@/types/log";
 import type { PnlSummary } from "@/types/pnl";
 import type { RedeemAttemptResult, RedeemRecord, RedeemStatusResponse } from "@/types/redeem";
 import type { StrategyDecision, StrategySettings, StrategySettingsPatch } from "@/types/strategy";
+import type { WalletConfigurePayload, WalletStatus, WalletTestResponse } from "@/types/wallet";
 import { ApiError, type StructuredError } from "@/types/error";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -105,6 +106,35 @@ export function getRedeemByMarket(marketId: number) {
 export function attemptRedeem(marketId: number) {
   return request<RedeemAttemptResult>(`/redeems/${marketId}/attempt`, {
     method: "POST",
+  });
+}
+
+export function getWalletStatus() {
+  return request<WalletStatus>("/wallet");
+}
+
+export function configureWallet(payload: WalletConfigurePayload) {
+  return request<WalletStatus>("/wallet/configure", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deriveWalletApiCredentials() {
+  return request<WalletStatus>("/wallet/derive-api-credentials", {
+    method: "POST",
+  });
+}
+
+export function testWalletCredentials() {
+  return request<WalletTestResponse>("/wallet/test", {
+    method: "POST",
+  });
+}
+
+export function deleteWalletCredentials() {
+  return request<WalletStatus>("/wallet", {
+    method: "DELETE",
   });
 }
 

@@ -17,3 +17,20 @@ a {
   text-decoration: none;
 }
 
+@layer components {
+  .input {
+    @apply rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

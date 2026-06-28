@@ -11,13 +11,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import bot, health, logs, markets, orders, pnl, redeem, strategy, ws
+from app.api.routes import bot, health, logs, markets, orders, pnl, redeem, strategy, wallet, ws
 from app.core.config import get_settings
 from app.core.errors import AppError, build_error_response, code_from_detail
 from app.core.logging import configure_logging
 from app.services.dashboard_broadcaster import dashboard_broadcaster
 from app.services.dashboard_event_bus import subscribe_dashboard_events
 from app.services.polymarket_errors import PolymarketHttpError
+from app.services.secret_crypto import validate_encryption_key_for_startup
 
 
 configure_logging()
@@ -42,6 +43,7 @@ app.include_router(orders.router, prefix="/api", tags=["orders"])
 app.include_router(pnl.router, prefix="/api", tags=["pnl"])
 app.include_router(redeem.router, prefix="/api", tags=["redeem"])
 app.include_router(logs.router, prefix="/api", tags=["logs"])
+app.include_router(wallet.router, prefix="/api", tags=["wallet"])
 app.include_router(ws.router, tags=["websocket"])
 
 
@@ -107,6 +109,8 @@ async def unexpected_exception_handler(request: Request, exc: Exception) -> JSON
 
 @app.on_event("startup")
 async def start_dashboard_event_subscriber() -> None:
+    validate_encryption_key_for_startup()
+
     async def forward_event(event_type: str, data: object, freshness_key: str | None) -> None:
         await dashboard_broadcaster.broadcast(event_type, data, freshness_key=freshness_key)
 

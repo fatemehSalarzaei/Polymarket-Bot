@@ -13,6 +13,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/markets/current", label: "Market" },
   { href: "/strategy", label: "Strategy" },
+  { href: "/wallet", label: "Wallet" },
   { href: "/orders", label: "Orders" },
   { href: "/pnl", label: "PnL" },
   { href: "/logs", label: "Logs" },

@@ -40,6 +40,7 @@ class ExecutionEngine:
             context,
             geoblock_blocked=geoblock_status.blocked,
             credentials_configured=self._sdk.credentials_configured,
+            credentials_missing_reason=self._sdk.credentials_missing_reason,
             daily_loss_usd=daily_loss_usd,
         )
         if not risk.passed:
@@ -167,4 +168,3 @@ class ExecutionEngine:
         await session.flush()
         await session.refresh(order)
         return order
-
