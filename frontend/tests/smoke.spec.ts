@@ -46,6 +46,10 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: [logFixture] });
       return;
     }
+    if (path.endsWith("/redeems")) {
+      await route.fulfill({ json: [] });
+      return;
+    }
 
     await route.fulfill({ status: 404, json: { detail: "not mocked" } });
   });
@@ -55,6 +59,13 @@ test("dashboard loads", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Real Trading")).toBeVisible();
+  await expect(page.getByText("Best Bid / Sell").first()).toBeVisible();
+  await expect(page.getByText("Best Ask / Buy").first()).toBeVisible();
+  await expect(page.getByText("Display Probability").first()).toBeVisible();
+  await expect(page.getByText("Diagnostics")).toBeVisible();
+  await expect(page.getByText("FINAL_3M_HIGHER_MARKET_PRICE")).toBeVisible();
+  await expect(page.getByText("HIGHER_UP_MARKET_PRICE")).toBeVisible();
+  await expect(page.getByText("Not required")).toBeVisible();
 });
 
 test("current market loads", async ({ page }) => {
@@ -118,12 +129,12 @@ const settingsFixture = {
   trading_enabled: false,
   kill_switch_active: false,
   final_window_seconds: 180,
-  min_edge: "0.0400",
-  max_spread: "0.0200",
+  min_edge: "0.0500",
+  max_spread: "0.0300",
   max_slippage: "0.0200",
-  max_order_size_usd: "10.00",
-  max_daily_loss_usd: "50.00",
-  max_data_age_seconds: 5,
+  max_order_size_usd: "1.00",
+  max_daily_loss_usd: "1.00",
+  max_data_age_seconds: 10,
   order_type: "FAK",
   updated_at: "2026-06-27T12:30:00Z",
 };
@@ -139,17 +150,23 @@ const decisionFixture = {
   current_price: "101.00000000",
   delta: "1.00000000",
   up_bid: "0.49000000",
-  up_ask: "0.50000000",
+  up_ask: "0.90000000",
   down_bid: "0.48000000",
-  down_ask: "0.51000000",
+  down_ask: "0.11000000",
   estimated_probability: "0.65000000",
-  market_price: "0.50000000",
-  edge: "0.15000000",
+  market_price: "0.90000000",
+  edge: "0.79000000",
   spread: "0.01000000",
   risk_passed: true,
   risk_reasons: [],
-  reason: "EDGE_PASSED",
-  raw_context: {},
+  reason: "HIGHER_UP_MARKET_PRICE",
+  raw_context: {
+    strategy_name: "FINAL_3M_HIGHER_MARKET_PRICE",
+    selected_side: "UP",
+    compared_up_value: "0.90000000",
+    compared_down_value: "0.11000000",
+    price_gap: "0.79000000",
+  },
   created_at: "2026-06-27T12:30:00Z",
 };
 

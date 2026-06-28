@@ -34,4 +34,3 @@ class StrategySettingsPatch(BaseModel):
     max_daily_loss_usd: Decimal | None = Field(default=None, gt=0)
     max_data_age_seconds: int | None = Field(default=None, ge=1, le=300)
     order_type: str | None = Field(default=None, pattern="^(GTC|FOK|GTD|FAK)$")
-

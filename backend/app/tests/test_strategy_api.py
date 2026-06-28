@@ -74,7 +74,7 @@ def test_decision_history_and_orders_endpoints_return_persisted_rows(
     assert len(history.json()) == 1
     assert orders.status_code == 200
     assert orders.json()[0]["mode"] == "paper"
-    assert orders.json()[0]["price"] == "0.52000000"
+    assert orders.json()[0]["price"] == "0.90000000"
 
 
 def test_current_decision_endpoint_returns_404_when_empty(client: TestClient) -> None:

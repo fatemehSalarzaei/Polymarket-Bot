@@ -25,7 +25,7 @@ class PaperTradingEngine:
             return None
 
         token_id = market.up_token_id if decision.outcome == "UP" else market.down_token_id
-        price = min(decision.market_price + context.max_slippage, Decimal("1"))
+        price = decision.market_price
         size = context.max_order_size_usd / price
         now = utc_now()
 
@@ -48,11 +48,10 @@ class PaperTradingEngine:
             raw_response={
                 "simulated": True,
                 "entry_price": str(decision.market_price),
-                "slippage": str(context.max_slippage),
+                "max_slippage": str(context.max_slippage),
             },
         )
         session.add(order)
         await session.flush()
         await session.refresh(order)
         return order
-

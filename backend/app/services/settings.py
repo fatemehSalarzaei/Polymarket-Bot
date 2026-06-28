@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditLog
 from app.models.settings import StrategySettings
+from app.core.config import get_settings
 from app.schemas.settings import StrategySettingsPatch
 
 
@@ -15,7 +16,17 @@ async def get_or_create_strategy_settings(session: AsyncSession) -> StrategySett
     if settings is not None:
         return settings
 
-    settings = StrategySettings()
+    app_settings = get_settings()
+    settings = StrategySettings(
+        final_window_seconds=app_settings.final_window_seconds,
+        min_edge=Decimal(str(app_settings.min_edge)),
+        max_spread=Decimal(str(app_settings.max_spread)),
+        max_slippage=Decimal(str(app_settings.max_slippage)),
+        max_order_size_usd=Decimal(str(app_settings.max_order_size_usd)),
+        max_daily_loss_usd=Decimal(str(app_settings.max_daily_loss_usd)),
+        max_data_age_seconds=app_settings.max_data_age_seconds,
+        order_type=app_settings.default_order_type,
+    )
     session.add(settings)
     await session.commit()
     await session.refresh(settings)
@@ -79,4 +90,3 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
     return value
-

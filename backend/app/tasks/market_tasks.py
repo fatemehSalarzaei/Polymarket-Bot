@@ -11,6 +11,8 @@ from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.db.session import get_sessionmaker
 from app.models.market import Market
+from app.schemas.market import MarketResponse
+from app.schemas.orderbook import CurrentMarketOrderbookResponse
 from app.services.market_discovery import MarketDiscoveryService, persist_active_market
 from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.orderbook import persist_orderbook_snapshot
@@ -44,7 +46,7 @@ async def discover_current_market_job(
         logger.info("current_market_discovered", extra={"market_id": market.id, "event_slug": market.event_slug})
         await publish_dashboard_event(
             "current_market",
-            {"market_id": market.id, "event_slug": market.event_slug},
+            MarketResponse.model_validate(market).model_dump(mode="json"),
             freshness_key="market_discovery",
         )
         return {"market_id": market.id, "event_slug": market.event_slug}
@@ -67,13 +69,19 @@ async def fetch_current_orderbook_job(
 
         up_orderbook = await client.get_orderbook(market.up_token_id)
         down_orderbook = await client.get_orderbook(market.down_token_id)
-        await persist_orderbook_snapshot(session, market=market, outcome="UP", orderbook=up_orderbook)
-        await persist_orderbook_snapshot(session, market=market, outcome="DOWN", orderbook=down_orderbook)
+        up_snapshot = await persist_orderbook_snapshot(session, market=market, outcome="UP", orderbook=up_orderbook)
+        down_snapshot = await persist_orderbook_snapshot(session, market=market, outcome="DOWN", orderbook=down_orderbook)
         await session.commit()
         logger.info("orderbooks_persisted", extra={"market_id": market.id, "count": 2})
+        payload = CurrentMarketOrderbookResponse(
+            market_id=market.id,
+            event_slug=market.event_slug,
+            up=up_snapshot,
+            down=down_snapshot,
+        ).model_dump(mode="json")
         await publish_dashboard_event(
             "orderbook_update",
-            {"market_id": market.id, "persisted": 2},
+            payload,
             freshness_key="orderbook_rest",
         )
         return {"market_id": market.id, "persisted": 2}

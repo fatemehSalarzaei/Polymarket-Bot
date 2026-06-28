@@ -45,6 +45,11 @@ def test_get_strategy_settings_creates_safe_default_row(client: TestClient) -> N
     assert body["trading_enabled"] is False
     assert body["kill_switch_active"] is False
     assert body["final_window_seconds"] == 180
+    assert body["min_edge"] == "0.0500"
+    assert body["max_spread"] == "0.0300"
+    assert body["max_order_size_usd"] == "1.00"
+    assert body["max_daily_loss_usd"] == "1.00"
+    assert body["max_data_age_seconds"] == 10
     assert body["order_type"] == "FAK"
 
 
@@ -104,4 +109,3 @@ def test_patch_strategy_settings_rejects_invalid_values(
     import asyncio
 
     asyncio.run(assert_no_audit_logs())
-

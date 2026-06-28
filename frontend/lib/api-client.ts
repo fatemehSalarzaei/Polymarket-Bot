@@ -4,6 +4,7 @@ import type { AuditLog } from "@/types/log";
 import type { PnlSummary } from "@/types/pnl";
 import type { RedeemAttemptResult, RedeemRecord, RedeemStatusResponse } from "@/types/redeem";
 import type { StrategyDecision, StrategySettings, StrategySettingsPatch } from "@/types/strategy";
+import { ApiError, type StructuredError } from "@/types/error";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
@@ -17,9 +18,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    throw await buildApiError(response, path);
   }
   return response.json() as Promise<T>;
+}
+
+async function buildApiError(response: Response, path: string): Promise<ApiError> {
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (isStructuredError(payload)) {
+    return new ApiError(payload.message, { status: response.status, path, structured: payload });
+  }
+  if (isFastApiDetail(payload)) {
+    return new ApiError(payload.detail, { status: response.status, path });
+  }
+  return new ApiError(`Request failed (${response.status}) for ${path}`, { status: response.status, path });
+}
+
+function isStructuredError(value: unknown): value is StructuredError {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<StructuredError>;
+  return typeof candidate.code === "string" && typeof candidate.message === "string" && typeof candidate.title === "string";
+}
+
+function isFastApiDetail(value: unknown): value is { detail: string } {
+  return Boolean(value && typeof value === "object" && typeof (value as { detail?: unknown }).detail === "string");
 }
 
 export function getHealth() {

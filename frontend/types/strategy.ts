@@ -47,6 +47,9 @@ export type StrategyDecision = {
   down_ask: string | null;
   estimated_probability: string | null;
   market_price: string | null;
+  compared_up_value?: string | null;
+  compared_down_value?: string | null;
+  price_gap?: string | null;
   edge: string | null;
   spread: string | null;
   risk_passed: boolean;
@@ -55,4 +58,3 @@ export type StrategyDecision = {
   raw_context: Record<string, unknown>;
   created_at: string;
 };
-

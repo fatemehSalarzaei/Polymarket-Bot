@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+from uuid import uuid4
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import bot, health, logs, markets, orders, pnl, redeem, strategy, ws
 from app.core.config import get_settings
+from app.core.errors import AppError, build_error_response, code_from_detail
 from app.core.logging import configure_logging
 from app.services.dashboard_broadcaster import dashboard_broadcaster
 from app.services.dashboard_event_bus import subscribe_dashboard_events
@@ -17,6 +23,7 @@ configure_logging()
 
 settings = get_settings()
 app = FastAPI(title="Polymarket BTC Up/Down Bot", version="0.1.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +42,56 @@ app.include_router(pnl.router, prefix="/api", tags=["pnl"])
 app.include_router(redeem.router, prefix="/api", tags=["redeem"])
 app.include_router(logs.router, prefix="/api", tags=["logs"])
 app.include_router(ws.router, tags=["websocket"])
+
+
+def _request_id(request: Request) -> str:
+    return request.headers.get("x-request-id") or str(uuid4())
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    payload = build_error_response(
+        exc.code,
+        technical_detail=exc.technical_detail,
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump(mode="json"))
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    code = code_from_detail(exc.detail)
+    payload = build_error_response(code, technical_detail=str(exc.detail), request_id=_request_id(request))
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump(mode="json"))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    payload = build_error_response(
+        "VALIDATION_ERROR",
+        technical_detail=str(exc.errors()),
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=422, content=payload.model_dump(mode="json"))
+
+
+@app.exception_handler(httpx.HTTPStatusError)
+async def http_status_exception_handler(request: Request, exc: httpx.HTTPStatusError) -> JSONResponse:
+    url = str(exc.request.url)
+    code = "POLYMARKET_GAMMA_HTTP_ERROR" if "gamma" in url else "POLYMARKET_CLOB_HTTP_ERROR"
+    payload = build_error_response(code, technical_detail=str(exc), request_id=_request_id(request))
+    return JSONResponse(status_code=502, content=payload.model_dump(mode="json"))
+
+
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("unexpected_api_error")
+    payload = build_error_response(
+        "INTERNAL_SERVER_ERROR",
+        technical_detail=str(exc),
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=500, content=payload.model_dump(mode="json"))
 
 
 @app.on_event("startup")

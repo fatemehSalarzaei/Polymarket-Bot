@@ -16,7 +16,7 @@ class RiskManager:
             reasons.append("KILL_SWITCH_ACTIVE")
         if decision.decision == "NO_TRADE":
             reasons.extend(decision.risk_reasons or [decision.reason])
-        if decision.market_price is None:
+        if decision.decision != "NO_TRADE" and decision.market_price is None:
             reasons.append("LIQUIDITY_TOO_LOW")
         if decision.market_price is not None and decision.market_price <= 0:
             reasons.append("LIQUIDITY_TOO_LOW")
@@ -45,4 +45,3 @@ class RiskManager:
         if decision.decision == "NO_TRADE":
             reasons.extend(decision.risk_reasons or [decision.reason])
         return RiskResult(passed=not reasons, reasons=list(dict.fromkeys(reasons)))
-

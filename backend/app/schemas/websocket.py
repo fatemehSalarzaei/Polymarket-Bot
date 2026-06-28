@@ -10,7 +10,10 @@ class MarketTick(BaseModel):
     event_type: str | None = None
     best_bid: Decimal | None = None
     best_ask: Decimal | None = None
+    midpoint: Decimal | None = None
     spread: Decimal | None = None
+    last_trade_price: Decimal | None = None
+    data_source: str = "market_ws"
     raw_payload: dict[str, Any]
     received_at: datetime
 
@@ -40,6 +43,7 @@ class RiskStatus(BaseModel):
 
 class DashboardError(BaseModel):
     code: str
+    title: str | None = None
     message: str
 
 
@@ -52,6 +56,12 @@ class DashboardWsEvent(BaseModel):
         "bot_status",
         "risk_status",
         "pnl_summary",
+        "current_market",
+        "orderbook_update",
+        "orderbook_snapshot",
+        "rtds_status",
+        "market_ws_status",
+        "trade_tick",
         "error",
     ]
     data: dict[str, Any] = Field(default_factory=dict)

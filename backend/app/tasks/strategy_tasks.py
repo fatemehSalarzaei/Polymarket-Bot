@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.celery_app import celery_app
+from app.core.errors import error_payload
 from app.db.session import get_sessionmaker
 from app.models.order import Order
 from app.schemas.order import OrderResponse
@@ -39,13 +40,14 @@ async def evaluate_current_strategy_job(
         build = await (builder or StrategyContextBuilder()).build(session)
         if not build.ok:
             logger.warning("strategy_evaluation_skipped", extra={"missing": build.missing})
+            detail = ", ".join(build.missing)
             await broadcaster.broadcast(
                 "error",
-                {"code": "STRATEGY_CONTEXT_INCOMPLETE", "message": ", ".join(build.missing)},
+                error_payload("STRATEGY_CONTEXT_INCOMPLETE", technical_detail=detail),
             )
             await publish_dashboard_event(
                 "error",
-                {"code": "STRATEGY_CONTEXT_INCOMPLETE", "message": ", ".join(build.missing)},
+                error_payload("STRATEGY_CONTEXT_INCOMPLETE", technical_detail=detail),
             )
             return {"decision_id": None, "order_id": None, "missing": build.missing}
 
@@ -56,8 +58,6 @@ async def evaluate_current_strategy_job(
         risk = await RiskManager().validate_for_paper_trade(decision, build.context)
         decision.risk_passed = risk.passed
         decision.risk_reasons = risk.reasons
-        if risk.reasons and decision.reason == "EDGE_PASSED":
-            decision.reason = risk.reasons[0]
 
         persisted = await persist_strategy_decision(session, market=build.market, decision=decision)
         strategy_event = StrategyDecisionResponse.model_validate(persisted)

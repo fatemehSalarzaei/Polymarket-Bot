@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.dashboard_broadcaster import DashboardBroadcaster, dashboard_broadcaster
-from app.services.market_ws import MarketWebSocketService, parse_market_tick
+from app.services.market_ws import MarketWebSocketService, parse_market_events, parse_market_tick
 from app.services.rtds_ws import RTDSWebSocketService, parse_btc_price_tick
 
 
@@ -85,6 +85,90 @@ def test_parse_market_tick_normalizes_prices() -> None:
     assert tick.best_bid == Decimal("0.48")
     assert tick.best_ask == Decimal("0.51")
     assert tick.spread == Decimal("0.03")
+    assert tick.midpoint == Decimal("0.495")
+
+
+def test_parse_market_book_event_uses_bid_max_and_ask_min() -> None:
+    events = parse_market_events(
+        {
+            "event_type": "book",
+            "asset_id": "up-token",
+            "bids": [{"price": "0.47", "size": "12"}, {"price": "0.49", "size": "8"}],
+            "asks": [{"price": "0.53", "size": "5"}, {"price": "0.51", "size": "9"}],
+        }
+    )
+
+    tick_type, tick = events[0]
+    snapshot_type, snapshot = events[1]
+
+    assert tick_type == "market_tick"
+    assert tick.best_bid == Decimal("0.49")
+    assert tick.best_ask == Decimal("0.51")
+    assert tick.spread == Decimal("0.02")
+    assert tick.midpoint == Decimal("0.50")
+    assert snapshot_type == "orderbook_snapshot"
+    assert snapshot["best_bid"] == Decimal("0.49")
+    assert snapshot["best_ask"] == Decimal("0.51")
+
+
+def test_parse_market_best_bid_ask_updates_top_of_book() -> None:
+    events = parse_market_events(
+        {
+            "event_type": "best_bid_ask",
+            "asset_id": "down-token",
+            "best_bid": "0.42",
+            "best_ask": "0.45",
+        }
+    )
+
+    tick = events[0][1]
+
+    assert events[0][0] == "market_tick"
+    assert tick.token_id == "down-token"
+    assert tick.best_bid == Decimal("0.42")
+    assert tick.best_ask == Decimal("0.45")
+    assert tick.midpoint == Decimal("0.435")
+
+
+def test_parse_market_price_change_handles_multiple_assets() -> None:
+    events = parse_market_events(
+        {
+            "event_type": "price_change",
+            "price_changes": [
+                {"asset_id": "up-token", "best_bid": "0.48", "best_ask": "0.50"},
+                {"asset_id": "down-token", "best_bid": "0.50", "best_ask": "0.52"},
+            ],
+        }
+    )
+
+    ticks = [event[1] for event in events]
+
+    assert [event[0] for event in events] == ["market_tick", "market_tick"]
+    assert [tick.token_id for tick in ticks] == ["up-token", "down-token"]
+    assert ticks[0].spread == Decimal("0.02")
+    assert ticks[1].midpoint == Decimal("0.51")
+
+
+def test_parse_market_last_trade_preserves_existing_book() -> None:
+    previous_tick = parse_market_tick(
+        {
+            "event_type": "best_bid_ask",
+            "asset_id": "up-token",
+            "best_bid": "0.48",
+            "best_ask": "0.52",
+        }
+    )
+
+    events = parse_market_events(
+        {"event_type": "last_trade_price", "asset_id": "up-token", "price": "0.51"},
+        previous={"up-token": previous_tick},
+    )
+    tick = events[0][1]
+
+    assert [event[0] for event in events] == ["market_tick", "trade_tick"]
+    assert tick.best_bid == Decimal("0.48")
+    assert tick.best_ask == Decimal("0.52")
+    assert tick.last_trade_price == Decimal("0.51")
 
 
 def test_market_ws_broadcasts_mock_message_and_tracks_freshness() -> None:
@@ -114,6 +198,7 @@ def test_market_ws_broadcasts_mock_message_and_tracks_freshness() -> None:
     assert json.loads(fake_connection.sent[0]) == {
         "assets_ids": ["up-token", "down-token"],
         "type": "market",
+        "custom_feature_enabled": True,
     }
     assert broadcaster.latest_events["market_tick"]["data"]["token_id"] == "up-token"
     assert broadcaster.freshness.is_fresh("market_ws", max_age_seconds=5)
@@ -181,7 +266,6 @@ def test_rtds_ws_broadcasts_mock_message_and_tracks_freshness() -> None:
         url="wss://example.test/rtds",
         broadcaster=broadcaster,
         connect=lambda url: fake_connection,
-        sleep=_no_sleep,
     )
 
     asyncio.run(service.run(max_messages=1))
@@ -189,10 +273,11 @@ def test_rtds_ws_broadcasts_mock_message_and_tracks_freshness() -> None:
     subscription = json.loads(fake_connection.sent[0])
     assert subscription["action"] == "subscribe"
     assert subscription["subscriptions"][0]["topic"] == "crypto_prices_chainlink"
+    assert subscription["subscriptions"][0]["type"] == "*"
     assert broadcaster.latest_events["btc_price_tick"]["data"]["value"] == "61234.12"
+    assert broadcaster.latest_events["rtds_status"]["data"]["status"] == "connected"
     assert broadcaster.freshness.is_fresh("rtds_btc", max_age_seconds=5)
 
 
 async def _no_sleep(_: float) -> None:
     return None
-

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.models.tick import ChainlinkTick
@@ -40,7 +41,7 @@ async def get_current_market(
         active_market = await service.discover_current_market()
         market = await persist_active_market(session, active_market)
     except MarketDiscoveryError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise AppError("CURRENT_MARKET_MISSING", technical_detail=str(exc), status_code=503) from exc
     return MarketResponse.model_validate(market)
 
 
@@ -71,10 +72,10 @@ async def get_current_market_orderbook(
         await session.commit()
     except MarketDiscoveryError as exc:
         await session.rollback()
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise AppError("CURRENT_MARKET_MISSING", technical_detail=str(exc), status_code=503) from exc
     except OrderbookParseError as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError("ORDERBOOK_PARSE_ERROR", technical_detail=str(exc), status_code=502) from exc
 
     return CurrentMarketOrderbookResponse(
         market_id=market.id,
@@ -89,5 +90,5 @@ async def get_current_btc_tick(session: AsyncSession = Depends(get_session)) -> 
     result = await session.execute(select(ChainlinkTick).order_by(desc(ChainlinkTick.received_at), desc(ChainlinkTick.id)).limit(1))
     tick = result.scalar_one_or_none()
     if tick is None:
-        raise HTTPException(status_code=404, detail="No BTC tick has been recorded")
+        raise AppError("CURRENT_CHAINLINK_TICK_MISSING", status_code=404)
     return ChainlinkTickResponse.model_validate(tick)

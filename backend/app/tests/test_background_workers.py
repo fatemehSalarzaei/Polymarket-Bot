@@ -70,8 +70,6 @@ async def test_strategy_context_builder_returns_missing_data_safely(
     assert set(result.missing) == {
         "UP_ORDERBOOK_MISSING",
         "DOWN_ORDERBOOK_MISSING",
-        "CURRENT_CHAINLINK_TICK_MISSING",
-        "START_CHAINLINK_TICK_MISSING",
     }
 
 
@@ -99,6 +97,27 @@ async def test_strategy_task_creates_only_one_paper_order_per_market(
     assert len(orders) == 1
     assert orders[0].mode == "paper"
     assert orders[0].outcome == "UP"
+
+
+@pytest.mark.asyncio
+async def test_strategy_context_builder_does_not_require_chainlink_ticks(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sessionmaker() as session:
+        market = _market("no-chainlink", start_delta_seconds=-780, end_delta_seconds=120)
+        session.add(market)
+        await session.flush()
+        await _seed_orderbooks(session, market)
+        await session.commit()
+
+        result = await StrategyContextBuilder().build(session)
+
+    assert result.ok
+    assert result.context is not None
+    assert result.context.btc_start_price is None
+    assert result.context.btc_current_price is None
+    assert result.context.up_ask == Decimal("0.90")
+    assert result.context.down_ask == Decimal("0.11")
 
 
 @pytest.mark.asyncio
@@ -178,14 +197,23 @@ async def _seed_strategy_inputs(session: AsyncSession, market: Market) -> None:
         [
             ChainlinkTick(value=Decimal("100"), source_timestamp=start_time, received_at=start_time),
             ChainlinkTick(value=Decimal("101"), source_timestamp=now, received_at=now),
+        ]
+    )
+    await _seed_orderbooks(session, market)
+
+
+async def _seed_orderbooks(session: AsyncSession, market: Market) -> None:
+    now = datetime.now(UTC)
+    session.add_all(
+        [
             OrderbookSnapshot(
                 market_id=market.id,
                 token_id=market.up_token_id,
                 outcome="UP",
                 received_at=now,
                 best_bid=Decimal("0.49"),
-                best_ask=Decimal("0.50"),
-                midpoint=Decimal("0.495"),
+                best_ask=Decimal("0.90"),
+                midpoint=Decimal("0.695"),
                 spread=Decimal("0.01"),
                 bids=[],
                 asks=[],
@@ -195,9 +223,9 @@ async def _seed_strategy_inputs(session: AsyncSession, market: Market) -> None:
                 token_id=market.down_token_id,
                 outcome="DOWN",
                 received_at=now,
-                best_bid=Decimal("0.48"),
-                best_ask=Decimal("0.51"),
-                midpoint=Decimal("0.495"),
+                best_bid=Decimal("0.10"),
+                best_ask=Decimal("0.11"),
+                midpoint=Decimal("0.105"),
                 spread=Decimal("0.01"),
                 bids=[],
                 asks=[],

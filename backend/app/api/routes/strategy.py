@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.db.session import get_session
 from app.schemas.settings import StrategySettingsPatch, StrategySettingsResponse
 from app.schemas.strategy import StrategyDecisionResponse
@@ -38,7 +39,7 @@ async def update_strategy_settings(
 async def get_current_decision(session: AsyncSession = Depends(get_session)) -> StrategyDecisionResponse:
     decision = await get_latest_decision(session)
     if decision is None:
-        raise HTTPException(status_code=404, detail="No strategy decision has been recorded")
+        raise AppError("STRATEGY_CONTEXT_INCOMPLETE", technical_detail="No strategy decision has been recorded", status_code=404)
     return StrategyDecisionResponse.model_validate(decision)
 
 
@@ -49,4 +50,3 @@ async def get_decision_history(
 ) -> list[StrategyDecisionResponse]:
     decisions = await list_decisions(session, limit=limit)
     return [StrategyDecisionResponse.model_validate(decision) for decision in decisions]
-

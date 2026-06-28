@@ -97,27 +97,32 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
           checked={form.trading_enabled}
           danger
           label="Real Trading"
+          helper="Dangerous. Real trading remains disabled by default and backend-gated."
           onChange={(value) => setForm((prev) => ({ ...prev, trading_enabled: value }))}
         />
         <Toggle
           checked={form.kill_switch_active}
           danger
           label="Kill Switch"
+          helper="When enabled, no paper or real orders will be created."
           onChange={(value) => setForm((prev) => ({ ...prev, kill_switch_active: value }))}
         />
         <NumberInput
           label="Final Window Seconds"
+          helper="Strategy evaluates only during the final N seconds of the 15m market."
           value={form.final_window_seconds}
           onChange={(value) => setForm((prev) => ({ ...prev, final_window_seconds: value }))}
         />
         <NumberInput
-          label="Min Edge"
+          label="Min Price Gap"
+          helper="Minimum difference between UP ask and DOWN ask required before paper trading."
           step="0.01"
           value={form.min_edge}
           onChange={(value) => setForm((prev) => ({ ...prev, min_edge: value }))}
         />
         <NumberInput
           label="Max Spread"
+          helper="Maximum allowed spread for the selected side."
           step="0.01"
           value={form.max_spread}
           onChange={(value) => setForm((prev) => ({ ...prev, max_spread: value }))}
@@ -178,17 +183,22 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
 function Toggle({
   checked,
   danger,
+  helper,
   label,
   onChange,
 }: {
   checked: boolean;
   danger?: boolean;
+  helper?: string;
   label: string;
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex min-h-14 items-center justify-between rounded-md border border-zinc-200 px-3 text-sm">
-      <span className="font-medium text-zinc-700">{label}</span>
+    <label className="flex min-h-14 items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 text-sm">
+      <span>
+        <span className="block font-medium text-zinc-700">{label}</span>
+        {helper ? <span className="mt-1 block text-xs text-muted">{helper}</span> : null}
+      </span>
       <input
         checked={checked}
         className={`h-5 w-5 ${danger ? "accent-red-700" : "accent-teal-700"}`}
@@ -200,11 +210,13 @@ function Toggle({
 }
 
 function NumberInput({
+  helper,
   label,
   onChange,
   step = "1",
   value,
 }: {
+  helper?: string;
   label: string;
   onChange: (value: string) => void;
   step?: string;
@@ -213,6 +225,7 @@ function NumberInput({
   return (
     <label className="flex flex-col gap-1 text-sm">
       <span className="font-medium text-zinc-700">{label}</span>
+      {helper ? <span className="text-xs text-muted">{helper}</span> : null}
       <input
         className="h-10 rounded-md border border-zinc-300 px-3 text-sm"
         inputMode="decimal"
@@ -231,7 +244,7 @@ function toFormState(settings: StrategySettings | null): FormState {
     trading_enabled: settings?.trading_enabled ?? false,
     kill_switch_active: settings?.kill_switch_active ?? false,
     final_window_seconds: String(settings?.final_window_seconds ?? 180),
-    min_edge: settings?.min_edge ?? "0.04",
+    min_edge: settings?.min_edge ?? "0.05",
     max_spread: settings?.max_spread ?? "0.02",
     max_slippage: settings?.max_slippage ?? "0.02",
     max_order_size_usd: settings?.max_order_size_usd ?? "10",

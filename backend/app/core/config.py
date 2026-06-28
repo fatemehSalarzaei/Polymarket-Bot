@@ -13,7 +13,9 @@ class Settings(BaseSettings):
 
     polymarket_clob_host: AnyHttpUrl = "https://clob.polymarket.com"
     polymarket_gamma_host: AnyHttpUrl = "https://gamma-api.polymarket.com"
+    polymarket_market_wss: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     polymarket_rtds_wss: str = "wss://ws-live-data.polymarket.com"
+    chainlink_start_tick_tolerance_seconds: int = 30
     polymarket_user_wss: str = "wss://clob.polymarket.com/ws/user"
     polymarket_chain_id: int = 137
 
@@ -31,12 +33,12 @@ class Settings(BaseSettings):
     paper_trading_enabled: bool = True
     kill_switch_active: bool = False
     final_window_seconds: int = 180
-    min_edge: float = 0.04
-    max_spread: float = 0.02
+    min_edge: float = 0.05
+    max_spread: float = 0.03
     max_slippage: float = 0.02
-    max_order_size_usd: float = 10
-    max_daily_loss_usd: float = 50
-    max_data_age_seconds: int = 5
+    max_order_size_usd: float = 1
+    max_daily_loss_usd: float = 1
+    max_data_age_seconds: int = 10
     default_order_type: str = Field(default="FAK", pattern="^(GTC|FOK|GTD|FAK)$")
     pusd_contract_address: str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
     ctf_parent_collection_id: str = "0x0000000000000000000000000000000000000000000000000000000000000000"

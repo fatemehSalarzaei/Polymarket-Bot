@@ -68,11 +68,11 @@ def test_current_btc_endpoint_returns_latest_tick(
 
 
 @pytest.mark.asyncio
-async def test_strategy_buy_down_when_edge_passes() -> None:
+async def test_strategy_buy_down_when_down_ask_is_higher() -> None:
     decision = await StrategyEngine().evaluate(
         _context(
-            btc_current_price=Decimal("99"),
-            down_ask=Decimal("0.50"),
+            up_ask=Decimal("0.12"),
+            down_ask=Decimal("0.82"),
             down_spread=Decimal("0.01"),
         )
     )
@@ -119,4 +119,3 @@ async def test_daily_loss_blocks_real_order(sessionmaker: async_sessionmaker[Asy
     assert result.status == "BLOCKED"
     assert "DAILY_LOSS_LIMIT_REACHED" in result.reasons
     assert fake_sdk.requests == []
-
