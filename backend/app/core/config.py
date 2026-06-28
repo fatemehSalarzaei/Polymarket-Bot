@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
     database_url: str = "postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot"
@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     trading_enabled: bool = False
     real_order_dry_run: bool = True
+    redeem_enabled: bool = False
+    redeem_dry_run: bool = True
     paper_trading_enabled: bool = True
     kill_switch_active: bool = False
     final_window_seconds: int = 180
@@ -36,6 +38,8 @@ class Settings(BaseSettings):
     max_daily_loss_usd: float = 50
     max_data_age_seconds: int = 5
     default_order_type: str = Field(default="FAK", pattern="^(GTC|FOK|GTD|FAK)$")
+    pusd_contract_address: str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+    ctf_parent_collection_id: str = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 
 @lru_cache

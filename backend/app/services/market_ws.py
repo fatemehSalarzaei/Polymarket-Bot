@@ -11,6 +11,7 @@ import websockets
 
 from app.schemas.websocket import MarketTick
 from app.services.dashboard_broadcaster import DashboardBroadcaster
+from app.services.dashboard_event_bus import publish_dashboard_event
 
 
 ConnectFactory = Callable[[str], Any]
@@ -58,6 +59,7 @@ class MarketWebSocketService:
                         for payload in _message_payloads(raw_message):
                             tick = parse_market_tick(payload)
                             await self.broadcaster.broadcast("market_tick", tick, freshness_key="market_ws")
+                            await publish_dashboard_event("market_tick", tick, freshness_key="market_ws")
                             handled += 1
                             if max_messages is not None and handled >= max_messages:
                                 return
@@ -117,4 +119,3 @@ def _maybe_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
-

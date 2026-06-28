@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.celery_app import celery_app
 from app.db.session import get_sessionmaker
 from app.services.dashboard_broadcaster import DashboardBroadcaster, dashboard_broadcaster
+from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.pnl import get_pnl_summary
 from app.services.settlement_worker import SettlementWorker
 
@@ -29,4 +30,5 @@ async def settle_finished_markets_job(
         if settlements:
             summary = await get_pnl_summary(session)
             await broadcaster.broadcast("pnl_summary", summary)
+            await publish_dashboard_event("pnl_summary", summary)
         return {"settled": len(settlements), "market_ids": [settlement.market_id for settlement in settlements]}

@@ -9,6 +9,7 @@ import websockets
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from app.services.dashboard_broadcaster import DashboardBroadcaster
+from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.order_reconciler import OrderReconciler
 
 
@@ -55,6 +56,7 @@ class UserWebSocketListener:
                                 await session.commit()
                             if order is not None:
                                 await self._broadcaster.broadcast("order_update", payload, freshness_key="user_ws")
+                                await publish_dashboard_event("order_update", payload, freshness_key="user_ws")
                             handled += 1
                             if max_messages is not None and handled >= max_messages:
                                 return
@@ -75,4 +77,3 @@ def _message_payloads(raw_message: Any) -> list[dict[str, Any]]:
     if isinstance(parsed, dict):
         return [parsed]
     raise ValueError("User websocket message must be an object or object array")
-

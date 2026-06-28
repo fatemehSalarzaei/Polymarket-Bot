@@ -66,6 +66,7 @@
 ## Phase 7 — Reports and hardening
 - Settlement worker
 - PnL summary
+- Backend-only redeem status for resolved winning real positions
 - PnL frontend page
 - Logs page
 - Structured logs

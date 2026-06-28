@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.market_tasks",
         "app.tasks.strategy_tasks",
         "app.tasks.settlement_tasks",
+        "app.tasks.redeem_tasks",
     ],
 )
 
@@ -38,6 +39,10 @@ celery_app.conf.update(
         },
         "settle-finished-markets": {
             "task": "app.tasks.settlement.settle_finished_markets",
+            "schedule": 60.0,
+        },
+        "redeem-resolved-winning-positions": {
+            "task": "app.tasks.redeem.redeem_resolved_winning_positions",
             "schedule": 60.0,
         },
     },

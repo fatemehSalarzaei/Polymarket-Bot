@@ -2,6 +2,7 @@ from app.db.base import Base
 from app.models.audit import AuditLog
 from app.models.market import Market
 from app.models.order import Order
+from app.models.redeem import RedeemRecord
 from app.models.settings import StrategySettings
 from app.models.settlement import Settlement
 from app.models.strategy import StrategyDecision
@@ -13,9 +14,9 @@ __all__ = [
     "ChainlinkTick",
     "Market",
     "Order",
+    "RedeemRecord",
     "OrderbookSnapshot",
     "Settlement",
     "StrategyDecision",
     "StrategySettings",
 ]
-

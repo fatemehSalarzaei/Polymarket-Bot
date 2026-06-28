@@ -11,6 +11,7 @@ import websockets
 
 from app.schemas.websocket import BtcPriceTick
 from app.services.dashboard_broadcaster import DashboardBroadcaster
+from app.services.dashboard_event_bus import publish_dashboard_event
 
 
 ConnectFactory = Callable[[str], Any]
@@ -57,6 +58,7 @@ class RTDSWebSocketService:
                             if self._on_tick is not None:
                                 await self._on_tick(tick)
                             await self.broadcaster.broadcast("btc_price_tick", tick, freshness_key="rtds_btc")
+                            await publish_dashboard_event("btc_price_tick", tick, freshness_key="rtds_btc")
                             handled += 1
                             if max_messages is not None and handled >= max_messages:
                                 return

@@ -13,6 +13,7 @@ from app.models.order import Order
 from app.schemas.order import OrderResponse
 from app.schemas.strategy import StrategyDecisionResponse
 from app.services.dashboard_broadcaster import DashboardBroadcaster, dashboard_broadcaster
+from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.paper_trading import PaperTradingEngine
 from app.services.risk_manager import RiskManager
 from app.services.strategy_context_builder import StrategyContextBuilder
@@ -42,6 +43,10 @@ async def evaluate_current_strategy_job(
                 "error",
                 {"code": "STRATEGY_CONTEXT_INCOMPLETE", "message": ", ".join(build.missing)},
             )
+            await publish_dashboard_event(
+                "error",
+                {"code": "STRATEGY_CONTEXT_INCOMPLETE", "message": ", ".join(build.missing)},
+            )
             return {"decision_id": None, "order_id": None, "missing": build.missing}
 
         assert build.context is not None
@@ -55,7 +60,9 @@ async def evaluate_current_strategy_job(
             decision.reason = risk.reasons[0]
 
         persisted = await persist_strategy_decision(session, market=build.market, decision=decision)
-        await broadcaster.broadcast("strategy_decision", StrategyDecisionResponse.model_validate(persisted))
+        strategy_event = StrategyDecisionResponse.model_validate(persisted)
+        await broadcaster.broadcast("strategy_decision", strategy_event)
+        await publish_dashboard_event("strategy_decision", strategy_event)
 
         order = None
         if risk.passed and await _has_no_paper_order(session, market_id=build.market.id):
@@ -67,7 +74,9 @@ async def evaluate_current_strategy_job(
                 context=build.context,
             )
             if order is not None:
-                await broadcaster.broadcast("order_update", OrderResponse.model_validate(order))
+                order_event = OrderResponse.model_validate(order)
+                await broadcaster.broadcast("order_update", order_event)
+                await publish_dashboard_event("order_update", order_event)
 
         await session.commit()
         return {

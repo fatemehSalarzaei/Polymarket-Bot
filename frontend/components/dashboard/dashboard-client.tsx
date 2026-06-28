@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { getCurrentMarket, getCurrentMarketOrderbook, getHealth } from "@/lib/api-client";
+import { getCurrentMarket, getCurrentMarketOrderbook, getHealth, getRedeems } from "@/lib/api-client";
 import { connectDashboardWebSocket } from "@/lib/websocket-client";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { FreshnessBadge } from "@/components/ui/freshness-badge";
 import { MetricCard } from "@/components/dashboard/metric-card";
+import { RedeemPanel } from "@/components/dashboard/redeem-panel";
+import type { RedeemRecord } from "@/types/redeem";
 
 export function DashboardClient() {
   const {
@@ -26,16 +28,18 @@ export function DashboardClient() {
     applyWsEvent,
   } = useDashboardStore();
   const [loading, setLoading] = useState(true);
+  const [redeems, setRedeems] = useState<RedeemRecord[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialData() {
       setLoading(true);
-      const [healthResult, marketResult, orderbookResult] = await Promise.allSettled([
+      const [healthResult, marketResult, orderbookResult, redeemResult] = await Promise.allSettled([
         getHealth(),
         getCurrentMarket(),
         getCurrentMarketOrderbook(),
+        getRedeems(),
       ]);
 
       if (cancelled) {
@@ -48,8 +52,11 @@ export function DashboardClient() {
         orderbook: orderbookResult.status === "fulfilled" ? orderbookResult.value : null,
       };
       setInitialData(nextData);
+      if (redeemResult.status === "fulfilled") {
+        setRedeems(redeemResult.value);
+      }
 
-      for (const result of [healthResult, marketResult, orderbookResult]) {
+      for (const result of [healthResult, marketResult, orderbookResult, redeemResult]) {
         if (result.status === "rejected") {
           const message = result.reason instanceof Error ? result.reason.message : "Dashboard data failed to load";
           setError(message);
@@ -155,6 +162,8 @@ export function DashboardClient() {
           timestamp={downTick?.received_at ?? orderbook?.down.received_at}
         />
       </div>
+
+      <RedeemPanel redeems={redeems} />
     </section>
   );
 }
@@ -243,4 +252,3 @@ function formatUsd(value?: string | null) {
     maximumFractionDigits: 0,
   }).format(parsed);
 }
-

@@ -10,4 +10,7 @@ node_modules/
 .next/
 dist/
 coverage/
-
+*.sqlite3
+*.sqlite3-*
+celerybeat-schedule*
+dump.rdb

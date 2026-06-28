@@ -30,4 +30,4 @@ class Market(TimestampMixin, Base):
     strategy_decisions = relationship("StrategyDecision", back_populates="market")
     orders = relationship("Order", back_populates="market")
     settlements = relationship("Settlement", back_populates="market")
-
+    redeem_records = relationship("RedeemRecord", back_populates="market")

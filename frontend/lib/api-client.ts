@@ -2,6 +2,7 @@ import type { CurrentMarketOrderbook, HealthResponse, Market } from "@/types/mar
 import type { Order } from "@/types/order";
 import type { AuditLog } from "@/types/log";
 import type { PnlSummary } from "@/types/pnl";
+import type { RedeemAttemptResult, RedeemRecord, RedeemStatusResponse } from "@/types/redeem";
 import type { StrategyDecision, StrategySettings, StrategySettingsPatch } from "@/types/strategy";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -62,6 +63,20 @@ export function getPnlSummary() {
 
 export function getLogs(limit = 100) {
   return request<AuditLog[]>(`/logs?limit=${limit}`);
+}
+
+export function getRedeems(limit = 100) {
+  return request<RedeemRecord[]>(`/redeems?limit=${limit}`);
+}
+
+export function getRedeemByMarket(marketId: number) {
+  return request<RedeemStatusResponse>(`/redeems/${marketId}`);
+}
+
+export function attemptRedeem(marketId: number) {
+  return request<RedeemAttemptResult>(`/redeems/${marketId}/attempt`, {
+    method: "POST",
+  });
 }
 
 export function getApiBaseUrl() {

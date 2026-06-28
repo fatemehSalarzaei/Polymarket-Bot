@@ -22,4 +22,4 @@ class Settlement(Base):
     raw_resolution: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict, nullable=False)
 
     market = relationship("Market", back_populates="settlements")
-
+    redeem_records = relationship("RedeemRecord", back_populates="settlement")

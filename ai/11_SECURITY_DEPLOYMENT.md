@@ -24,6 +24,8 @@ POLYMARKET_API_PASSPHRASE=
 POLYMARKET_FUNDER_ADDRESS=
 POLYMARKET_SIGNATURE_TYPE=3
 TRADING_ENABLED=false
+REDEEM_ENABLED=false
+REDEEM_DRY_RUN=true
 PAPER_TRADING_ENABLED=true
 KILL_SWITCH_ACTIVE=false
 FINAL_WINDOW_SECONDS=180
@@ -47,6 +49,7 @@ Before real trading, call `https://polymarket.com/api/geoblock`. If blocked, for
 
 ## Kill switch
 - blocks all new real orders
+- blocks redeem attempts
 - monitoring continues
 - creates audit log
 - optional: cancel open orders if implemented
