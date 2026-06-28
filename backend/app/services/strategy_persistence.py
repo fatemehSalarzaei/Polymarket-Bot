@@ -16,8 +16,10 @@ async def persist_strategy_decision(
     *,
     market: Market,
     decision: StrategyDecisionDTO,
+    user_id: int | None = None,
 ) -> StrategyDecision:
     row = StrategyDecision(
+        user_id=user_id,
         market_id=market.id,
         decision=decision.decision,
         outcome=decision.outcome,
@@ -55,18 +57,25 @@ async def persist_strategy_decision(
     return row
 
 
-async def get_latest_decision(session: AsyncSession) -> StrategyDecision | None:
-    result = await session.execute(select(StrategyDecision).order_by(desc(StrategyDecision.created_at), desc(StrategyDecision.id)).limit(1))
+async def get_latest_decision(session: AsyncSession, *, user_id: int | None = None) -> StrategyDecision | None:
+    statement = select(StrategyDecision)
+    if user_id is not None:
+        statement = statement.where(StrategyDecision.user_id == user_id)
+    result = await session.execute(statement.order_by(desc(StrategyDecision.created_at), desc(StrategyDecision.id)).limit(1))
     return result.scalar_one_or_none()
 
 
-async def list_decisions(session: AsyncSession, *, limit: int = 100) -> list[StrategyDecision]:
-    result = await session.execute(
-        select(StrategyDecision).order_by(desc(StrategyDecision.created_at), desc(StrategyDecision.id)).limit(limit)
-    )
+async def list_decisions(session: AsyncSession, *, limit: int = 100, user_id: int | None = None) -> list[StrategyDecision]:
+    statement = select(StrategyDecision)
+    if user_id is not None:
+        statement = statement.where(StrategyDecision.user_id == user_id)
+    result = await session.execute(statement.order_by(desc(StrategyDecision.created_at), desc(StrategyDecision.id)).limit(limit))
     return list(result.scalars().all())
 
 
-async def list_orders(session: AsyncSession, *, limit: int = 100) -> list[Order]:
-    result = await session.execute(select(Order).order_by(desc(Order.submitted_at), desc(Order.id)).limit(limit))
+async def list_orders(session: AsyncSession, *, limit: int = 100, user_id: int | None = None) -> list[Order]:
+    statement = select(Order)
+    if user_id is not None:
+        statement = statement.where(Order.user_id == user_id)
+    result = await session.execute(statement.order_by(desc(Order.submitted_at), desc(Order.id)).limit(limit))
     return list(result.scalars().all())

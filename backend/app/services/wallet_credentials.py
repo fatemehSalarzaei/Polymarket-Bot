@@ -17,7 +17,13 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.base import utc_now
 from app.models.wallet import WalletCredential
-from app.schemas.wallet import WalletConfigureRequest, WalletResponse, WalletTestDeriveResponse, WalletTestResponse
+from app.schemas.wallet import (
+    WalletConfigureRequest,
+    WalletReadinessResponse,
+    WalletResponse,
+    WalletTestDeriveResponse,
+    WalletTestResponse,
+)
 from app.services.secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -126,6 +132,7 @@ async def configure_wallet(
     session: AsyncSession,
     *,
     deriver: ApiCredentialDeriver | None = None,
+    user_id: int | None = None,
 ) -> WalletCredential:
     private_key = validate_private_key(request.private_key)
     wallet_address = derive_wallet_address(private_key)
@@ -139,11 +146,12 @@ async def configure_wallet(
             signature_type=request.signature_type,
         )
 
-    existing = await _active_wallet(session)
+    existing = await _active_wallet(session, user_id=user_id)
     now = utc_now()
     if existing is None:
         credential = WalletCredential(
             wallet_address=wallet_address,
+            user_id=user_id,
             funder_address=request.funder_address,
             signature_type=request.signature_type,
             chain_id=request.chain_id,
@@ -175,14 +183,14 @@ async def configure_wallet(
         credential.encrypted_api_passphrase = None
         credential.api_credentials_created_at = None
 
-    await _deactivate_duplicate_wallets(session, keep_id=credential.id)
+    await _deactivate_duplicate_wallets(session, keep_id=credential.id, user_id=user_id)
     await session.commit()
     await session.refresh(credential)
     return credential
 
 
-async def get_wallet_status(session: AsyncSession) -> WalletResponse:
-    credential = await _active_wallet(session)
+async def get_wallet_status(session: AsyncSession, *, user_id: int | None = None) -> WalletResponse:
+    credential = await _active_wallet(session, user_id=user_id)
     return wallet_response(credential)
 
 
@@ -190,8 +198,9 @@ async def derive_api_credentials(
     session: AsyncSession,
     *,
     deriver: ApiCredentialDeriver | None = None,
+    user_id: int | None = None,
 ) -> WalletCredential:
-    credential = await _active_wallet(session)
+    credential = await _active_wallet(session, user_id=user_id)
     if credential is None or not credential.is_configured:
         raise AppError("WALLET_CONFIG_MISSING", status_code=404)
     private_key = decrypt_secret(credential.encrypted_private_key)
@@ -232,8 +241,8 @@ async def test_derive_api_credentials(
     )
 
 
-async def test_wallet_credentials(session: AsyncSession) -> WalletTestResponse:
-    credential = await _active_wallet(session)
+async def test_wallet_credentials(session: AsyncSession, *, user_id: int | None = None) -> WalletTestResponse:
+    credential = await _active_wallet(session, user_id=user_id)
     issues: list[str] = []
     if credential is None or not credential.is_configured:
         issues.append("WALLET_CONFIG_MISSING")
@@ -269,8 +278,8 @@ async def test_wallet_credentials(session: AsyncSession) -> WalletTestResponse:
     )
 
 
-async def get_active_wallet_credentials_for_trading(session: AsyncSession) -> TradingCredentialBundle:
-    credential = await _active_wallet(session)
+async def get_active_wallet_credentials_for_trading(session: AsyncSession, *, user_id: int | None = None) -> TradingCredentialBundle:
+    credential = await _active_wallet(session, user_id=user_id)
     if credential is None or not credential.is_configured:
         raise AppError("WALLET_CONFIG_MISSING", status_code=403)
     if not _api_credentials_configured(credential):
@@ -287,8 +296,11 @@ async def get_active_wallet_credentials_for_trading(session: AsyncSession) -> Tr
     )
 
 
-async def delete_wallet_credentials(session: AsyncSession) -> None:
-    await session.execute(delete(WalletCredential))
+async def delete_wallet_credentials(session: AsyncSession, *, user_id: int | None = None) -> None:
+    statement = delete(WalletCredential)
+    if user_id is not None:
+        statement = statement.where(WalletCredential.user_id == user_id)
+    await session.execute(statement)
     await session.commit()
 
 
@@ -307,6 +319,47 @@ def wallet_response(credential: WalletCredential | None) -> WalletResponse:
         last_validated_at=credential.last_validated_at,
         last_error=credential.last_error,
         updated_at=credential.updated_at,
+    )
+
+
+async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = None) -> WalletReadinessResponse:
+    blocking_reasons: list[str] = []
+    credential = await _active_wallet(session, user_id=user_id)
+    if credential is None or not credential.is_configured:
+        blocking_reasons.append("WALLET_CONFIG_MISSING")
+        return WalletReadinessResponse(
+            wallet_configured=False,
+            api_credentials_configured=False,
+            private_key_decryptable=False,
+            funder_address_configured=False,
+            trading_ready=False,
+            blocking_reasons=blocking_reasons,
+        )
+
+    private_key_decryptable = False
+    try:
+        decrypt_secret(credential.encrypted_private_key)
+        private_key_decryptable = True
+    except AppError:
+        blocking_reasons.append("WALLET_DECRYPTION_FAILED")
+
+    api_credentials_configured = _api_credentials_configured(credential)
+    if not api_credentials_configured:
+        blocking_reasons.append("WALLET_API_CREDENTIALS_MISSING")
+    if credential.chain_id != 137:
+        blocking_reasons.append("WALLET_CHAIN_ID_INVALID")
+    if credential.signature_type == 3 and not credential.funder_address:
+        blocking_reasons.append("WALLET_FUNDER_REQUIRED")
+
+    return WalletReadinessResponse(
+        wallet_configured=True,
+        api_credentials_configured=api_credentials_configured,
+        private_key_decryptable=private_key_decryptable,
+        funder_address_configured=bool(credential.funder_address),
+        signature_type=credential.signature_type,
+        chain_id=credential.chain_id,
+        trading_ready=not blocking_reasons,
+        blocking_reasons=list(dict.fromkeys(blocking_reasons)),
     )
 
 
@@ -351,15 +404,21 @@ def _checksum_address(address: str) -> str:
     return f"0x{checksummed}"
 
 
-async def _active_wallet(session: AsyncSession) -> WalletCredential | None:
-    result = await session.execute(select(WalletCredential).where(WalletCredential.is_active.is_(True)).limit(1))
+async def _active_wallet(session: AsyncSession, *, user_id: int | None = None) -> WalletCredential | None:
+    statement = select(WalletCredential).where(WalletCredential.is_active.is_(True))
+    if user_id is not None:
+        statement = statement.where(WalletCredential.user_id == user_id)
+    result = await session.execute(statement.limit(1))
     return result.scalar_one_or_none()
 
 
-async def _deactivate_duplicate_wallets(session: AsyncSession, *, keep_id: int | None) -> None:
+async def _deactivate_duplicate_wallets(session: AsyncSession, *, keep_id: int | None, user_id: int | None = None) -> None:
     if keep_id is None:
         return
-    result = await session.execute(select(WalletCredential).where(WalletCredential.id != keep_id))
+    statement = select(WalletCredential).where(WalletCredential.id != keep_id)
+    if user_id is not None:
+        statement = statement.where(WalletCredential.user_id == user_id)
+    result = await session.execute(statement)
     for credential in result.scalars():
         credential.is_active = False
 

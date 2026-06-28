@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market import Market
 from app.models.order import Order
+from app.models.redeem import RedeemRecord
 from app.models.settlement import Settlement
 from app.models.tick import ChainlinkTick
 
@@ -55,15 +56,20 @@ class SettlementWorker:
         *,
         market: Market,
         winning_outcome: str,
+        user_id: int | None = None,
         btc_start_price: Decimal | None = None,
         btc_end_price: Decimal | None = None,
         resolved_at: datetime | None = None,
     ) -> Settlement:
-        result = await session.execute(select(Order).where(Order.market_id == market.id))
+        statement = select(Order).where(Order.market_id == market.id)
+        if user_id is not None:
+            statement = statement.where(Order.user_id == user_id)
+        result = await session.execute(statement)
         orders = list(result.scalars().all())
         paper_pnl = _calculate_pnl(orders, winning_outcome, mode="paper")
         real_pnl = _calculate_pnl(orders, winning_outcome, mode="real")
         settlement = Settlement(
+            user_id=user_id,
             market_id=market.id,
             winning_outcome=winning_outcome,
             btc_start_price=btc_start_price or _decimal_or_none(market.raw_event.get("btc_start_price")),
@@ -76,6 +82,7 @@ class SettlementWorker:
         session.add(settlement)
         await session.flush()
         await session.refresh(settlement)
+        await _create_redeem_record_if_ready(session, market=market, settlement=settlement, orders=orders, user_id=user_id)
         return settlement
 
 
@@ -88,6 +95,47 @@ def _calculate_pnl(orders: list[Order], winning_outcome: str, *, mode: str) -> D
         payout = order.size_matched if order.outcome == winning_outcome else Decimal("0")
         pnl += payout - cost
     return pnl
+
+
+async def _create_redeem_record_if_ready(
+    session: AsyncSession,
+    *,
+    market: Market,
+    settlement: Settlement,
+    orders: list[Order],
+    user_id: int | None,
+) -> None:
+    winning_real_orders = [
+        order
+        for order in orders
+        if order.mode == "real" and order.outcome == settlement.winning_outcome and order.size_matched > 0
+    ]
+    if not winning_real_orders or not market.condition_id:
+        return
+    statement = select(RedeemRecord.id).where(
+        RedeemRecord.market_id == market.id,
+        RedeemRecord.condition_id == market.condition_id,
+        RedeemRecord.mode == "real",
+    )
+    if user_id is not None:
+        statement = statement.where(RedeemRecord.user_id == user_id)
+    existing = await session.execute(statement.limit(1))
+    if existing.scalar_one_or_none() is not None:
+        return
+    session.add(
+        RedeemRecord(
+            user_id=user_id,
+            wallet_credential_id=winning_real_orders[0].wallet_credential_id,
+            market_id=market.id,
+            settlement_id=settlement.id,
+            condition_id=market.condition_id,
+            winning_outcome=settlement.winning_outcome,
+            status="READY_TO_REDEEM",
+            mode="real",
+            raw_request={},
+            raw_response={"created_by": "settlement_worker"},
+        )
+    )
 
 
 def _decimal_or_none(value) -> Decimal | None:

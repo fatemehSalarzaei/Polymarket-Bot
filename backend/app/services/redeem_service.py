@@ -50,6 +50,7 @@ class RedeemService:
         session: AsyncSession,
         market: Market,
         settlement: Settlement | None,
+        user_id: int | None = None,
     ) -> RedeemEligibilityResponse:
         winning_outcome = settlement.winning_outcome if settlement is not None else None
         reasons: list[str] = []
@@ -63,13 +64,13 @@ class RedeemService:
         if not winning_outcome:
             reasons.append("WINNING_OUTCOME_MISSING")
 
-        confirmed = await _get_existing_redeem_record(session, market=market, status="REDEEM_CONFIRMED")
+        confirmed = await _get_existing_redeem_record(session, market=market, status="REDEEM_CONFIRMED", user_id=user_id)
         if confirmed is not None:
             reasons.append("REDEEM_ALREADY_CONFIRMED")
 
-        real_orders = await _real_orders_for_market(session, market_id=market.id)
+        real_orders = await _real_orders_for_market(session, market_id=market.id, user_id=user_id)
         if not real_orders:
-            paper_orders = await _paper_orders_for_market(session, market_id=market.id)
+            paper_orders = await _paper_orders_for_market(session, market_id=market.id, user_id=user_id)
             reasons.append("PAPER_ONLY" if paper_orders else "REAL_ORDER_MISSING")
 
         winning_orders = [
@@ -81,7 +82,7 @@ class RedeemService:
         if real_orders and not winning_orders:
             reasons.append("WINNING_REAL_ORDER_MISSING")
 
-        strategy_settings = await get_or_create_strategy_settings(session)
+        strategy_settings = await get_or_create_strategy_settings(session, user_id=user_id)
         if not (strategy_settings.trading_enabled or self._settings.redeem_enabled):
             reasons.append("REDEEM_DISABLED")
         if strategy_settings.kill_switch_active or self._settings.kill_switch_active:
@@ -115,10 +116,12 @@ class RedeemService:
         session: AsyncSession,
         market: Market,
         settlement: Settlement,
+        user_id: int | None = None,
     ) -> RedeemAttemptResult:
-        eligibility = await self.check_redeem_eligibility(session, market, settlement)
-        existing = await _get_existing_redeem_record(session, market=market)
+        eligibility = await self.check_redeem_eligibility(session, market, settlement, user_id=user_id)
+        existing = await _get_existing_redeem_record(session, market=market, user_id=user_id)
         record = existing or RedeemRecord(
+            user_id=user_id,
             market_id=market.id,
             settlement_id=settlement.id,
             condition_id=market.condition_id,
@@ -204,17 +207,20 @@ class RedeemService:
         return await self._adapter.get_pusd_balance(wallet_address)
 
 
-async def list_redeem_records(session: AsyncSession, *, limit: int = 100) -> list[RedeemRecord]:
-    result = await session.execute(select(RedeemRecord).order_by(desc(RedeemRecord.created_at)).limit(limit))
+async def list_redeem_records(session: AsyncSession, *, limit: int = 100, user_id: int | None = None) -> list[RedeemRecord]:
+    statement = select(RedeemRecord)
+    if user_id is not None:
+        statement = statement.where(RedeemRecord.user_id == user_id)
+    result = await session.execute(statement.order_by(desc(RedeemRecord.created_at)).limit(limit))
     return list(result.scalars().all())
 
 
-async def get_redeem_record_for_market(session: AsyncSession, *, market_id: int) -> RedeemRecord | None:
+async def get_redeem_record_for_market(session: AsyncSession, *, market_id: int, user_id: int | None = None) -> RedeemRecord | None:
+    statement = select(RedeemRecord).where(RedeemRecord.market_id == market_id, RedeemRecord.mode == "real")
+    if user_id is not None:
+        statement = statement.where(RedeemRecord.user_id == user_id)
     result = await session.execute(
-        select(RedeemRecord)
-        .where(RedeemRecord.market_id == market_id, RedeemRecord.mode == "real")
-        .order_by(desc(RedeemRecord.created_at))
-        .limit(1)
+        statement.order_by(desc(RedeemRecord.created_at)).limit(1)
     )
     return result.scalar_one_or_none()
 
@@ -224,25 +230,34 @@ async def _get_existing_redeem_record(
     *,
     market: Market,
     status: str | None = None,
+    user_id: int | None = None,
 ) -> RedeemRecord | None:
     statement = select(RedeemRecord).where(
         RedeemRecord.market_id == market.id,
         RedeemRecord.condition_id == market.condition_id,
         RedeemRecord.mode == "real",
     )
+    if user_id is not None:
+        statement = statement.where(RedeemRecord.user_id == user_id)
     if status is not None:
         statement = statement.where(RedeemRecord.status == status)
     result = await session.execute(statement.order_by(desc(RedeemRecord.created_at)).limit(1))
     return result.scalar_one_or_none()
 
 
-async def _real_orders_for_market(session: AsyncSession, *, market_id: int) -> list[Order]:
-    result = await session.execute(select(Order).where(Order.market_id == market_id, Order.mode == "real"))
+async def _real_orders_for_market(session: AsyncSession, *, market_id: int, user_id: int | None = None) -> list[Order]:
+    statement = select(Order).where(Order.market_id == market_id, Order.mode == "real")
+    if user_id is not None:
+        statement = statement.where(Order.user_id == user_id)
+    result = await session.execute(statement)
     return list(result.scalars().all())
 
 
-async def _paper_orders_for_market(session: AsyncSession, *, market_id: int) -> list[Order]:
-    result = await session.execute(select(Order).where(Order.market_id == market_id, Order.mode == "paper"))
+async def _paper_orders_for_market(session: AsyncSession, *, market_id: int, user_id: int | None = None) -> list[Order]:
+    statement = select(Order).where(Order.market_id == market_id, Order.mode == "paper")
+    if user_id is not None:
+        statement = statement.where(Order.user_id == user_id)
+    result = await session.execute(statement)
     return list(result.scalars().all())
 
 

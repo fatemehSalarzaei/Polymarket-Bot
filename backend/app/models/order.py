@@ -12,11 +12,14 @@ class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
         Index("ix_orders_mode_status_submitted", "mode", "status", "submitted_at"),
+        Index("ix_orders_user_market", "user_id", "market_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False)
     strategy_decision_id: Mapped[int | None] = mapped_column(ForeignKey("strategy_decisions.id"))
+    wallet_credential_id: Mapped[int | None] = mapped_column(ForeignKey("wallet_credentials.id"))
     mode: Mapped[str] = mapped_column(String(16), nullable=False)
     external_order_id: Mapped[str | None] = mapped_column(String(255))
     token_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -35,4 +38,3 @@ class Order(Base):
 
     market = relationship("Market", back_populates="orders")
     strategy_decision = relationship("StrategyDecision", back_populates="orders")
-

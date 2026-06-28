@@ -27,3 +27,14 @@ export type WalletTestResponse = {
   trading_ready: boolean;
   issues: string[];
 };
+
+export type WalletReadiness = {
+  wallet_configured: boolean;
+  api_credentials_configured: boolean;
+  private_key_decryptable: boolean;
+  funder_address_configured: boolean;
+  signature_type: number | null;
+  chain_id: number | null;
+  trading_ready: boolean;
+  blocking_reasons: string[];
+};

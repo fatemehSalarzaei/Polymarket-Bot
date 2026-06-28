@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Numeric, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, utc_now
@@ -9,8 +9,10 @@ from app.db.base import Base, utc_now
 
 class StrategySettings(Base):
     __tablename__ = "strategy_settings"
+    __table_args__ = (Index("ix_strategy_settings_user_id", "user_id", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     paper_trading_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     trading_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     kill_switch_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

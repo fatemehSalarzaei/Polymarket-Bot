@@ -9,15 +9,18 @@ from app.models.strategy import StrategyDecision
 from app.schemas.pnl import PnlSummaryResponse
 
 
-async def get_pnl_summary(session: AsyncSession) -> PnlSummaryResponse:
-    paper_pnl = await session.scalar(select(func.coalesce(func.sum(Settlement.paper_pnl), 0)))
-    real_pnl = await session.scalar(select(func.coalesce(func.sum(Settlement.real_pnl), 0)))
-    settled_markets = await session.scalar(select(func.count(Settlement.id)))
-    paper_orders = await session.scalar(select(func.count(Order.id)).where(Order.mode == "paper"))
-    real_orders = await session.scalar(select(func.count(Order.id)).where(Order.mode == "real"))
-    no_trade_count = await session.scalar(select(func.count(StrategyDecision.id)).where(StrategyDecision.decision == "NO_TRADE"))
+async def get_pnl_summary(session: AsyncSession, *, user_id: int | None = None) -> PnlSummaryResponse:
+    settlement_filter = Settlement.user_id == user_id if user_id is not None else True
+    order_filter = Order.user_id == user_id if user_id is not None else True
+    decision_filter = StrategyDecision.user_id == user_id if user_id is not None else True
+    paper_pnl = await session.scalar(select(func.coalesce(func.sum(Settlement.paper_pnl), 0)).where(settlement_filter))
+    real_pnl = await session.scalar(select(func.coalesce(func.sum(Settlement.real_pnl), 0)).where(settlement_filter))
+    settled_markets = await session.scalar(select(func.count(Settlement.id)).where(settlement_filter))
+    paper_orders = await session.scalar(select(func.count(Order.id)).where(order_filter, Order.mode == "paper"))
+    real_orders = await session.scalar(select(func.count(Order.id)).where(order_filter, Order.mode == "real"))
+    no_trade_count = await session.scalar(select(func.count(StrategyDecision.id)).where(decision_filter, StrategyDecision.decision == "NO_TRADE"))
 
-    settlement_result = await session.execute(select(Settlement))
+    settlement_result = await session.execute(select(Settlement).where(settlement_filter))
     settlements = list(settlement_result.scalars().all())
     winning_trades = sum(1 for settlement in settlements if (settlement.paper_pnl or 0) > 0 or (settlement.real_pnl or 0) > 0)
     losing_trades = sum(1 for settlement in settlements if (settlement.paper_pnl or 0) < 0 or (settlement.real_pnl or 0) < 0)
@@ -35,4 +38,3 @@ async def get_pnl_summary(session: AsyncSession) -> PnlSummaryResponse:
         win_rate=win_rate,
         no_trade_count=int(no_trade_count or 0),
     )
-

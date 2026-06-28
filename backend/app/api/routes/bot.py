@@ -8,6 +8,8 @@ from app.schemas.websocket import BotStatus
 from app.services.bot_state import bot_state_service
 from app.services.geoblock import GeoblockClient
 from app.services.settings import get_or_create_strategy_settings, serialize_strategy_settings
+from app.services.auth import get_current_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -25,6 +27,7 @@ async def get_bot_status() -> BotStatus:
 async def start_bot(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> BotStatus:
     status = await bot_state_service.start()
     session.add(
@@ -47,6 +50,7 @@ async def start_bot(
 async def stop_bot(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> BotStatus:
     status = await bot_state_service.stop()
     session.add(
@@ -76,6 +80,7 @@ async def get_geoblock_status(
 async def activate_kill_switch(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> dict[str, bool]:
     settings = await get_or_create_strategy_settings(session)
     before = serialize_strategy_settings(settings)

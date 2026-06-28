@@ -5,6 +5,8 @@ import type { PnlSummary } from "@/types/pnl";
 import type { RedeemAttemptResult, RedeemRecord, RedeemStatusResponse } from "@/types/redeem";
 import type { StrategyDecision, StrategySettings, StrategySettingsPatch } from "@/types/strategy";
 import type { WalletConfigurePayload, WalletStatus, WalletTestResponse } from "@/types/wallet";
+import type { CurrentUser, LoginResponse, User } from "@/types/auth";
+import type { TradingReadiness, TradingStatus } from "@/types/trading";
 import { ApiError, type StructuredError } from "@/types/error";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
@@ -12,6 +14,7 @@ const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:800
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     cache: "no-store",
+    credentials: "include",
     headers: {
       "content-type": "application/json",
       ...init?.headers,
@@ -136,6 +139,71 @@ export function deleteWalletCredentials() {
   return request<WalletStatus>("/wallet", {
     method: "DELETE",
   });
+}
+
+export function login(username: string, password: string) {
+  return request<LoginResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout() {
+  return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
+}
+
+export function getMe() {
+  return request<CurrentUser>("/auth/me");
+}
+
+export function listAdminUsers() {
+  return request<User[]>("/admin/users");
+}
+
+export function createAdminUser(payload: {
+  email: string;
+  username: string;
+  password: string;
+  role: "admin" | "trader" | "viewer";
+  is_active?: boolean;
+}) {
+  return request<User>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminUser(userId: number, payload: Partial<Pick<User, "email" | "username" | "role" | "is_active">>) {
+  return request<User>(`/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resetAdminUserPassword(userId: number, newPassword: string) {
+  return request<{ ok: boolean }>(`/admin/users/${userId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+export function getTradingReadiness() {
+  return request<TradingReadiness>("/trading/readiness");
+}
+
+export function getTradingStatus() {
+  return request<TradingStatus>("/trading/status");
+}
+
+export function enableTrading(confirmPhrase: string) {
+  return request<TradingStatus>("/trading/enable", {
+    method: "POST",
+    body: JSON.stringify({ confirm_phrase: confirmPhrase }),
+  });
+}
+
+export function disableTrading() {
+  return request<TradingStatus>("/trading/disable", { method: "POST" });
 }
 
 export function getApiBaseUrl() {

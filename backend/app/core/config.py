@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot"
     redis_url: RedisDsn = "redis://redis:6379/0"
     credential_encryption_key: str = ""
+    jwt_secret_key: str = "change-me-local-dev-only"
+    jwt_expire_minutes: int = 720
+    cookie_secure: bool = False
+    admin_email: str = ""
+    admin_username: str = "admin"
+    admin_password_hash: str = ""
 
     polymarket_clob_host: AnyHttpUrl = "https://clob.polymarket.com"
     polymarket_gamma_host: AnyHttpUrl = "https://gamma-api.polymarket.com"
@@ -34,6 +40,7 @@ class Settings(BaseSettings):
     polymarket_signature_type: int = 3
 
     trading_enabled: bool = False
+    real_trading_confirmation_enabled: bool = False
     real_order_dry_run: bool = True
     redeem_enabled: bool = False
     redeem_dry_run: bool = True

@@ -18,6 +18,7 @@ class PaperTradingEngine:
         persisted_decision: StrategyDecision,
         decision: StrategyDecisionDTO,
         context: StrategyContext,
+        user_id: int | None = None,
     ) -> Order | None:
         if decision.decision not in {"BUY_UP", "BUY_DOWN"} or decision.outcome is None:
             return None
@@ -30,6 +31,7 @@ class PaperTradingEngine:
         now = utc_now()
 
         order = Order(
+            user_id=user_id,
             market_id=market.id,
             strategy_decision_id=persisted_decision.id,
             mode="paper",

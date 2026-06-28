@@ -34,6 +34,8 @@ class ExecutionEngine:
         context: StrategyContext,
         geoblock_status: GeoblockStatus,
         daily_loss_usd: Decimal = Decimal("0"),
+        user_id: int | None = None,
+        wallet_credential_id: int | None = None,
     ) -> RealOrderResult:
         risk = await self._risk_manager.validate_for_real_trade(
             decision,
@@ -53,6 +55,8 @@ class ExecutionEngine:
                 status="BLOCKED",
                 raw_response={"risk_reasons": risk.reasons, "geoblock": geoblock_status.model_dump(mode="json")},
                 error_message=",".join(risk.reasons),
+                user_id=user_id,
+                wallet_credential_id=wallet_credential_id,
             )
             await session.commit()
             return RealOrderResult(
@@ -74,6 +78,8 @@ class ExecutionEngine:
                 context=context,
                 status="DRY_RUN",
                 raw_response={"dry_run": True, "request": request.model_dump(mode="json")},
+                user_id=user_id,
+                wallet_credential_id=wallet_credential_id,
             )
             await session.commit()
             return RealOrderResult(
@@ -96,6 +102,8 @@ class ExecutionEngine:
             external_order_id=result.external_order_id,
             raw_response=result.raw_response,
             error_message=result.error_message,
+            user_id=user_id,
+            wallet_credential_id=wallet_credential_id,
         )
         await session.commit()
         return RealOrderResult(
@@ -140,6 +148,8 @@ class ExecutionEngine:
         external_order_id: str | None = None,
         raw_response: dict | None = None,
         error_message: str | None = None,
+        user_id: int | None = None,
+        wallet_credential_id: int | None = None,
     ) -> Order:
         outcome = decision.outcome or "UNKNOWN"
         token_id = market.up_token_id if outcome == "UP" else market.down_token_id if outcome == "DOWN" else ""
@@ -147,8 +157,10 @@ class ExecutionEngine:
         size = context.max_order_size_usd / price if price > 0 else Decimal("0")
         now = utc_now()
         order = Order(
+            user_id=user_id,
             market_id=market.id,
             strategy_decision_id=persisted_decision.id,
+            wallet_credential_id=wallet_credential_id,
             mode="real",
             external_order_id=external_order_id,
             token_id=token_id,

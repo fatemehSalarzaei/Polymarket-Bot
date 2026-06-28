@@ -10,14 +10,18 @@ from app.core.config import get_settings
 from app.schemas.settings import StrategySettingsPatch
 
 
-async def get_or_create_strategy_settings(session: AsyncSession) -> StrategySettings:
-    result = await session.execute(select(StrategySettings).order_by(StrategySettings.id).limit(1))
+async def get_or_create_strategy_settings(session: AsyncSession, *, user_id: int | None = None) -> StrategySettings:
+    statement = select(StrategySettings)
+    if user_id is not None:
+        statement = statement.where(StrategySettings.user_id == user_id)
+    result = await session.execute(statement.order_by(StrategySettings.id).limit(1))
     settings = result.scalar_one_or_none()
     if settings is not None:
         return settings
 
     app_settings = get_settings()
     settings = StrategySettings(
+        user_id=user_id,
         final_window_seconds=app_settings.final_window_seconds,
         min_edge=Decimal(str(app_settings.min_edge)),
         max_spread=Decimal(str(app_settings.max_spread)),
@@ -39,6 +43,8 @@ async def patch_strategy_settings(
     patch: StrategySettingsPatch,
     *,
     actor: str,
+    actor_user_id: int | None = None,
+    actor_role: str | None = None,
     ip_address: str | None,
     user_agent: str | None,
 ) -> StrategySettings:
@@ -54,6 +60,9 @@ async def patch_strategy_settings(
 
     audit_log = AuditLog(
         actor=actor,
+        user_id=settings.user_id,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
         action="strategy_settings.patch",
         entity_type="strategy_settings",
         entity_id=str(settings.id),

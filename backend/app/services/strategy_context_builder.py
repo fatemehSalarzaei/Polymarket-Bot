@@ -30,7 +30,13 @@ class StrategyContextBuilder:
         settings = get_settings()
         self._start_tick_tolerance_seconds = start_tick_tolerance_seconds or settings.chainlink_start_tick_tolerance_seconds
 
-    async def build(self, session: AsyncSession, *, now: datetime | None = None) -> StrategyContextBuildResult:
+    async def build(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime | None = None,
+        user_id: int | None = None,
+    ) -> StrategyContextBuildResult:
         current_time = _ensure_aware(now or datetime.now(UTC))
         market = await self._current_market(session, current_time)
         if market is None:
@@ -56,7 +62,7 @@ class StrategyContextBuilder:
         assert up_snapshot is not None
         assert down_snapshot is not None
 
-        settings = await get_or_create_strategy_settings(session)
+        settings = await get_or_create_strategy_settings(session, user_id=user_id)
         end_ts = market.end_ts or ((market.start_ts or int(current_time.timestamp())) + 900)
         market_received_at = max(_ensure_aware(up_snapshot.received_at), _ensure_aware(down_snapshot.received_at))
 

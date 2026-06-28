@@ -4,6 +4,38 @@ Monitoring and paper-trading dashboard for Polymarket `btc-updown-15m-*` markets
 
 The implementation follows the Markdown specs in [ai/](./ai). Real trading is disabled by default and all browser-facing code talks only to the backend API.
 
+## Multi-User Mode
+
+The app now has user login, user-scoped wallet credentials, user-scoped strategy settings, per-user orders/PnL/redeems, and admin-only user/table management. PostgreSQL is required for production multi-user operation. SQLite remains useful for local single-user smoke tests only.
+
+Create the first admin after migrations:
+
+```bash
+cd backend
+alembic upgrade head
+python -m app.scripts.create_admin_user --email admin@example.com --username admin
+```
+
+Required auth/security envs:
+
+```env
+CREDENTIAL_ENCRYPTION_KEY=
+JWT_SECRET_KEY=
+JWT_EXPIRE_MINUTES=720
+COOKIE_SECURE=false
+ADMIN_EMAIL=
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=
+```
+
+Generate `CREDENTIAL_ENCRYPTION_KEY` with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Users log in through `/login`. JWTs are stored only in HttpOnly cookies; never in localStorage. Admin pages expose only masked wallet status and never return private keys, encrypted secret blobs, API secret, API passphrase, or the encryption key.
+
 ## Run
 
 ```bash
@@ -20,6 +52,7 @@ Docker Compose also starts:
 - `celery_worker` for scheduled market/orderbook/strategy/settlement tasks
 - `celery_beat` for task scheduling
 - `realtime_runner` for Polymarket market websocket and RTDS Chainlink ticks
+- user-scoped strategy/redeem flows; use `app.tasks.strategy.evaluate_active_users` for multi-user strategy evaluation
 
 ## Local backend tests
 
@@ -143,6 +176,7 @@ npm run test:smoke
 - No frontend code calls Polymarket order endpoints
 - Real order execution is backend-only, guarded, and dry-run by default
 - Redeem/claim is backend-only and dry-run by default
+- Users cannot enable real trading unless wallet, API credentials, geoblock, kill switch, chain id, and dry-run/confirmation readiness checks pass
 - The API bot start/stop endpoints record state; long-lived background work runs in Celery/realtime worker services
 
 ## Settlement, Redeem, And Wallet Balance

@@ -8,6 +8,8 @@ from app.db.session import get_session
 from app.models.market import Market
 from app.models.settlement import Settlement
 from app.schemas.redeem import RedeemAttemptResult, RedeemRecordResponse, RedeemStatusResponse
+from app.models.user import User
+from app.services.auth import get_current_user, user_id_or_none
 from app.services.redeem_service import (
     RedeemService,
     get_redeem_record_for_market,
@@ -25,8 +27,9 @@ def get_redeem_service() -> RedeemService:
 async def get_redeems(
     limit: int = Query(default=100, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user),
 ) -> list[RedeemRecordResponse]:
-    records = await list_redeem_records(session, limit=limit)
+    records = await list_redeem_records(session, limit=limit, user_id=user_id_or_none(current_user))
     return [RedeemRecordResponse.model_validate(record) for record in records]
 
 
@@ -35,12 +38,13 @@ async def get_redeem_by_market(
     market_id: int,
     session: AsyncSession = Depends(get_session),
     service: RedeemService = Depends(get_redeem_service),
+    current_user: User | None = Depends(get_current_user),
 ) -> RedeemStatusResponse:
     market, settlement = await _market_and_settlement(session, market_id)
-    record = await get_redeem_record_for_market(session, market_id=market_id)
+    record = await get_redeem_record_for_market(session, market_id=market_id, user_id=user_id_or_none(current_user))
     if record is not None:
         return _status_from_record(record)
-    eligibility = await service.check_redeem_eligibility(session, market, settlement)
+    eligibility = await service.check_redeem_eligibility(session, market, settlement, user_id=user_id_or_none(current_user))
     return RedeemStatusResponse(
         market_id=market.id,
         condition_id=market.condition_id,
@@ -56,11 +60,12 @@ async def attempt_redeem(
     market_id: int,
     session: AsyncSession = Depends(get_session),
     service: RedeemService = Depends(get_redeem_service),
+    current_user: User | None = Depends(get_current_user),
 ) -> RedeemAttemptResult:
     market, settlement = await _market_and_settlement(session, market_id)
     if settlement is None:
         raise HTTPException(status_code=400, detail="SETTLEMENT_MISSING")
-    result = await service.redeem_winning_position(session, market, settlement)
+    result = await service.redeem_winning_position(session, market, settlement, user_id=user_id_or_none(current_user))
     await session.commit()
     return result
 

@@ -124,10 +124,11 @@ class PolymarketOrderSdkClient:
 async def build_clob_sdk_from_stored_wallet(
     session: AsyncSession,
     *,
+    user_id: int | None = None,
     sdk_client_factory=None,
 ) -> BackendOnlyClobSdkWrapper:
     try:
-        bundle = await get_active_wallet_credentials_for_trading(session)
+        bundle = await get_active_wallet_credentials_for_trading(session, user_id=user_id)
     except AppError as exc:
         if exc.code == "WALLET_CONFIG_MISSING":
             return BackendOnlyClobSdkWrapper(

@@ -12,9 +12,11 @@ class StrategyDecision(Base):
     __tablename__ = "strategy_decisions"
     __table_args__ = (
         Index("ix_strategy_decisions_market_created", "market_id", "created_at"),
+        Index("ix_strategy_decisions_user_market", "user_id", "market_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False)
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     outcome: Mapped[str | None] = mapped_column(String(16))
@@ -39,4 +41,3 @@ class StrategyDecision(Base):
 
     market = relationship("Market", back_populates="strategy_decisions")
     orders = relationship("Order", back_populates="strategy_decision")
-

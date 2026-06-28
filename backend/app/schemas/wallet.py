@@ -52,3 +52,14 @@ class WalletTestDeriveResponse(BaseModel):
     api_key_present: bool
     secret_present: bool
     passphrase_present: bool
+
+
+class WalletReadinessResponse(BaseModel):
+    wallet_configured: bool
+    api_credentials_configured: bool
+    private_key_decryptable: bool
+    funder_address_configured: bool
+    signature_type: int | None = None
+    chain_id: int | None = None
+    trading_ready: bool
+    blocking_reasons: list[str] = Field(default_factory=list)

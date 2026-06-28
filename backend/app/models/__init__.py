@@ -7,6 +7,7 @@ from app.models.settings import StrategySettings
 from app.models.settlement import Settlement
 from app.models.strategy import StrategyDecision
 from app.models.tick import ChainlinkTick, OrderbookSnapshot
+from app.models.user import User
 from app.models.wallet import WalletCredential
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "Settlement",
     "StrategyDecision",
     "StrategySettings",
+    "User",
     "WalletCredential",
 ]

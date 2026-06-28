@@ -10,11 +10,21 @@ from app.db.base import Base, TimestampMixin, json_type
 class RedeemRecord(TimestampMixin, Base):
     __tablename__ = "redeem_records"
     __table_args__ = (
-        UniqueConstraint("market_id", "condition_id", "mode", name="uq_redeem_market_condition_mode"),
+        UniqueConstraint(
+            "user_id",
+            "market_id",
+            "condition_id",
+            "wallet_credential_id",
+            "mode",
+            name="uq_redeem_user_market_condition_wallet_mode",
+        ),
         Index("ix_redeem_records_status_created", "status", "created_at"),
+        Index("ix_redeem_records_user_market_condition", "user_id", "market_id", "condition_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    wallet_credential_id: Mapped[int | None] = mapped_column(ForeignKey("wallet_credentials.id"))
     market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), nullable=False)
     settlement_id: Mapped[int | None] = mapped_column(ForeignKey("settlements.id"))
     condition_id: Mapped[str] = mapped_column(String(255), nullable=False)

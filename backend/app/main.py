@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import bot, health, logs, markets, orders, pnl, redeem, strategy, wallet, ws
+from app.api.routes import admin, auth, bot, health, logs, markets, orders, pnl, redeem, strategy, trading, wallet, ws
 from app.core.config import get_settings
 from app.core.errors import AppError, build_error_response, code_from_detail
 from app.core.logging import configure_logging
@@ -36,9 +36,12 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(bot.router, prefix="/api", tags=["bot"])
 app.include_router(markets.router, prefix="/api", tags=["markets"])
 app.include_router(strategy.router, prefix="/api", tags=["strategy"])
+app.include_router(trading.router, prefix="/api", tags=["trading"])
 app.include_router(orders.router, prefix="/api", tags=["orders"])
 app.include_router(pnl.router, prefix="/api", tags=["pnl"])
 app.include_router(redeem.router, prefix="/api", tags=["redeem"])
