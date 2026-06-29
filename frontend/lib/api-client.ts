@@ -164,7 +164,7 @@ export function createAdminUser(payload: {
   email: string;
   username: string;
   password: string;
-  role: "admin" | "trader" | "viewer";
+  role: "super_user" | "admin" | "trader" | "viewer";
   is_active?: boolean;
 }) {
   return request<User>("/admin/users", {

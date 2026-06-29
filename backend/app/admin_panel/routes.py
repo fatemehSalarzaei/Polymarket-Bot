@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin_panel.forms import FormError, field_specs, parse_form_data
-from app.admin_panel.registry import AdminTable, all_tables, get_table
+from app.admin_panel.registry import AdminTable, all_tables, format_cell, get_table
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.order import Order
@@ -29,6 +29,9 @@ from app.services.auth import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/admin_panel/templates")
+templates.env.filters["format_cell"] = format_cell
+templates.env.filters["field_label"] = lambda value: str(value).replace("_", " ").title()
+templates.env.filters["badge_class"] = lambda value: _badge_class(value)
 MAX_LIMIT = 500
 DEFAULT_LIMIT = 100
 
@@ -52,7 +55,7 @@ async def login(request: Request, session: AsyncSession = Depends(get_session)) 
             {"title": "Admin Login", "error": "Invalid username or password."},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-    if user.role != "admin":
+    if user.role not in ("admin", "super_user"):
         return _error(request, 403, "Admin access is required.")
     response = RedirectResponse("/admin-panel", status_code=status.HTTP_303_SEE_OTHER)
     set_auth_cookie(response, create_access_token(user))
@@ -121,7 +124,7 @@ async def table_detail(
         {
             "admin": admin,
             "table": table,
-            "fields": table.display_fields(),
+            "fields": table.list_display_fields(),
             "rows": rows,
             "page": safe_page,
             "limit": safe_limit,
@@ -138,7 +141,7 @@ async def new_object_page(table_name: str, request: Request, session: AsyncSessi
     table = _table_or_error(request, table_name)
     if isinstance(table, Response):
         return table
-    if not table.creatable:
+    if not table.can_create(admin):
         return _error(request, 403, "This table does not allow creating records.")
     return _form(request, admin, table, creating=True)
 
@@ -151,7 +154,7 @@ async def create_object(table_name: str, request: Request, session: AsyncSession
     table = _table_or_error(request, table_name)
     if isinstance(table, Response):
         return table
-    if not table.creatable:
+    if not table.can_create(admin):
         return _error(request, 403, "This table does not allow creating records.")
     form = dict(await request.form())
     try:
@@ -187,7 +190,7 @@ async def object_detail(
         {
             "admin": admin,
             "table": table,
-            "row": table.public_row(obj),
+            "row": table.public_row(obj, detail=True),
             "object_id": object_id,
             "title": f"{table.label} #{object_id}",
         },
@@ -207,7 +210,7 @@ async def edit_object_page(
     table = _table_or_error(request, table_name)
     if isinstance(table, Response):
         return table
-    if not table.editable:
+    if not table.can_edit(admin):
         return _error(request, 403, "This table is read-only.")
     obj = await session.get(table.model, object_id)
     if obj is None:
@@ -230,7 +233,7 @@ async def update_object(
     table = _table_or_error(request, table_name)
     if isinstance(table, Response):
         return table
-    if not table.editable:
+    if not table.can_edit(admin):
         return _error(request, 403, "This table is read-only.")
     obj = await session.get(table.model, object_id)
     if obj is None:
@@ -259,7 +262,7 @@ async def delete_object(
     table = _table_or_error(request, table_name)
     if isinstance(table, Response):
         return table
-    if not table.deletable:
+    if not table.can_delete(admin):
         return _error(request, 403, "Deletion is disabled for this table.")
     if table.name == "users" and object_id == admin.id:
         return _error(request, 403, "You cannot delete your own admin user.")
@@ -282,7 +285,7 @@ async def _require_admin(request: Request, session: AsyncSession) -> User | Resp
         return RedirectResponse("/admin-panel/login", status_code=status.HTTP_303_SEE_OTHER)
     if user is None or not user.is_active:
         return RedirectResponse("/admin-panel/login", status_code=status.HTTP_303_SEE_OTHER)
-    if user.role != "admin":
+    if user.role not in ("admin", "super_user"):
         return _error(request, 403, "Admin access is required.")
     return user
 
@@ -338,3 +341,16 @@ def _error(request: Request, code: int, message: str) -> HTMLResponse:
 
 def _template(request: Request, template: str, context: dict[str, Any], status_code: int = 200) -> HTMLResponse:
     return templates.TemplateResponse(request, template, context, status_code=status_code)
+
+
+def _badge_class(value: Any) -> str:
+    normalized = str(value).lower()
+    if value is True or normalized in {"enabled", "active", "success", "filled", "complete", "completed", "super_user"}:
+        return "badge positive"
+    if value is False or normalized in {"disabled", "inactive", "failed", "error", "rejected", "kill", "blocked"}:
+        return "badge negative"
+    if normalized in {"admin", "real", "submitted", "pending", "open"}:
+        return "badge warning"
+    if normalized in {"viewer", "trader", "paper", "dry_run"}:
+        return "badge neutral"
+    return "badge neutral"

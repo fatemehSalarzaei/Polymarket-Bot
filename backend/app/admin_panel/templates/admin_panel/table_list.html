@@ -17,9 +17,9 @@
           <tr>
             <td><a href="/admin-panel/tables/{{ table.name }}">{{ table.label }}</a></td>
             <td>
-              {% if table.read_only %}Read-only{% endif %}
-              {% if table.creatable %}Creatable{% endif %}
-              {% if table.editable %}{% if table.creatable %}, {% endif %}Editable{% endif %}
+              {% if table.read_only %}<span class="badge neutral">Read-only</span>{% endif %}
+              {% if table.creatable %}<span class="badge positive">Creatable by super users</span>{% endif %}
+              {% if table.editable %}<span class="badge warning">Editable by super users</span>{% endif %}
             </td>
             <td><a href="/admin-panel/tables/{{ table.name }}">Open</a></td>
           </tr>

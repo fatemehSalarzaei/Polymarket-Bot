@@ -103,9 +103,22 @@ async def get_current_user(
 async def get_current_admin_user(current_user: User | None = Depends(get_current_user)) -> User | None:
     if current_user is None and _pytest_auth_bypass():
         return None
-    if current_user is None or current_user.role != "admin":
+    if current_user is None or current_user.role not in ("admin", "super_user"):
         raise AppError("ADMIN_REQUIRED", status_code=403)
     return current_user
+
+
+async def get_current_super_user(
+    session: AsyncSession = Depends(get_session),
+    token: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
+) -> User:
+    if not token:
+        raise AppError("SUPER_USER_REQUIRED", status_code=403)
+    payload = decode_access_token(token)
+    user = await session.get(User, int(payload["sub"]))
+    if user is None or not user.is_active or user.role != "super_user":
+        raise AppError("SUPER_USER_REQUIRED", status_code=403)
+    return user
 
 
 def require_role(user: User, *roles: str) -> None:

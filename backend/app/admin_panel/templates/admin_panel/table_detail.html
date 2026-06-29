@@ -5,16 +5,19 @@
       <h2>{{ table.label }}</h2>
       <p class="muted">Page {{ page }} · Limit {{ limit }}</p>
     </div>
-    {% if table.creatable %}
+    {% if table.can_create(admin) %}
       <a class="button" href="/admin-panel/tables/{{ table.name }}/new">Add</a>
     {% endif %}
   </div>
+  <div class="toolbar">
+    <span class="muted">Showing compact operational columns. Open a row for full safe details.</span>
+  </div>
   <div class="table-panel">
-    <table>
+    <table class="data-table">
       <thead>
         <tr>
           {% for field in fields %}
-            <th>{{ field }}</th>
+            <th>{{ field|field_label }}</th>
           {% endfor %}
           <th>Actions</th>
         </tr>
@@ -23,17 +26,33 @@
         {% for row in rows %}
           <tr>
             {% for field in fields %}
-              <td>{{ row[field] }}</td>
+              <td>
+                {% if field in ["role", "is_active", "active", "closed", "paper_trading_enabled", "trading_enabled", "kill_switch_active", "risk_passed", "status", "mode", "api_key_configured", "is_configured"] %}
+                  <span class="{{ row[field]|badge_class }}">{{ row[field]|format_cell }}</span>
+                {% else %}
+                  {{ row[field]|format_cell }}
+                {% endif %}
+              </td>
             {% endfor %}
-            <td>
-              <a href="/admin-panel/tables/{{ table.name }}/{{ row.id }}">View</a>
-              {% if table.editable %}
-                · <a href="/admin-panel/tables/{{ table.name }}/{{ row.id }}/edit">Edit</a>
+            <td class="row-actions">
+              <a class="action-link" href="/admin-panel/tables/{{ table.name }}/{{ row.id }}">View</a>
+              {% if table.can_edit(admin) %}
+                <a class="action-link" href="/admin-panel/tables/{{ table.name }}/{{ row.id }}/edit">Edit</a>
+              {% endif %}
+              {% if table.can_delete(admin) %}
+                <form method="post" action="/admin-panel/tables/{{ table.name }}/{{ row.id }}/delete" onsubmit="return confirm('Delete this record?');">
+                  <button class="link-button danger-text" type="submit">Delete</button>
+                </form>
               {% endif %}
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="{{ fields|length + 1 }}">No records found.</td></tr>
+          <tr>
+            <td class="empty-state" colspan="{{ fields|length + 1 }}">
+              <strong>No records found.</strong>
+              <span class="muted">There is nothing to display for this table yet.</span>
+            </td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>

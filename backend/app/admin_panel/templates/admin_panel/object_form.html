@@ -12,6 +12,12 @@
         <label for="{{ field.name }}">{{ field.label }}</label>
         {% if field.kind == "boolean" %}
           <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {% if values[field.name] %}checked{% endif %}>
+        {% elif field.kind == "select" %}
+          <select id="{{ field.name }}" name="{{ field.name }}" {% if field.required %}required{% endif %}>
+            {% for option in field.options %}
+              <option value="{{ option.value }}" {% if values[field.name] == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
         {% elif field.kind == "json" %}
           <textarea id="{{ field.name }}" name="{{ field.name }}" {% if field.required %}required{% endif %}>{{ values[field.name] or "" }}</textarea>
         {% else %}

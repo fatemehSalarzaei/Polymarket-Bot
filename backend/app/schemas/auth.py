@@ -5,7 +5,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-UserRole = Literal["admin", "trader", "viewer"]
+UserRole = Literal["super_user", "admin", "trader", "viewer"]
+USER_ROLE_OPTIONS = (
+    {"value": "viewer", "label": "User"},
+    {"value": "trader", "label": "Trader"},
+    {"value": "admin", "label": "Admin"},
+    {"value": "super_user", "label": "Super User"},
+)
+USER_ROLE_VALUES = {option["value"] for option in USER_ROLE_OPTIONS}
 
 
 class LoginRequest(BaseModel):

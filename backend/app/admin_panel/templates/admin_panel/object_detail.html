@@ -11,14 +11,14 @@
       <tbody>
         {% for field, value in row.items() %}
           <tr>
-            <th>{{ field }}</th>
-            <td>{{ value }}</td>
+            <th>{{ field|field_label }}</th>
+            <td>{{ value|format_cell }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if table.deletable %}
+  {% if table.can_delete(admin) %}
     <form class="actions" method="post" action="/admin-panel/tables/{{ table.name }}/{{ object_id }}/delete" onsubmit="return confirm('Delete this record?');">
       <button class="button danger" type="submit">Delete</button>
     </form>

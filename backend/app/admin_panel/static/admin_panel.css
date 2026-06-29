@@ -142,6 +142,13 @@ a:hover {
   overflow-x: auto;
 }
 
+.toolbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
@@ -151,7 +158,7 @@ th,
 td {
   border-bottom: 1px solid var(--border);
   max-width: 340px;
-  padding: 10px 12px;
+  padding: 11px 12px;
   text-align: left;
   vertical-align: top;
   word-break: break-word;
@@ -161,6 +168,73 @@ th {
   background: #f1f4f8;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.data-table tbody tr:hover {
+  background: #fbfcfd;
+}
+
+.badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.badge.positive {
+  background: #e6f6ef;
+  color: #067647;
+}
+
+.badge.negative {
+  background: #fff0ed;
+  color: var(--danger);
+}
+
+.badge.warning {
+  background: #fff6df;
+  color: #946200;
+}
+
+.badge.neutral {
+  background: #eef3f6;
+  color: #46566b;
+}
+
+.row-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.action-link,
+.link-button {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
+.empty-state {
+  padding: 26px 12px;
+  text-align: center;
+}
+
+.empty-state span {
+  display: block;
+  margin-top: 4px;
 }
 
 .form-panel {

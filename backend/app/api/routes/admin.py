@@ -17,9 +17,10 @@ from app.models.settlement import Settlement
 from app.models.strategy import StrategyDecision
 from app.models.user import User
 from app.models.wallet import WalletCredential
-from app.schemas.auth import CreateUserRequest, ResetPasswordRequest, UpdateUserRequest, UserResponse
+from app.schemas.auth import USER_ROLE_OPTIONS, CreateUserRequest, ResetPasswordRequest, UpdateUserRequest, UserResponse
 from app.schemas.wallet import WalletResponse
 from app.services.auth import get_current_admin_user, hash_password
+from app.services.auth import get_current_super_user
 from app.services.wallet_credentials import wallet_response
 
 router = APIRouter()
@@ -49,7 +50,7 @@ async def list_users(
 async def create_user(
     payload: CreateUserRequest,
     session: AsyncSession = Depends(get_session),
-    admin: User | None = Depends(get_current_admin_user),
+    admin: User | None = Depends(get_current_super_user),
 ) -> UserResponse:
     user = User(
         email=payload.email.strip().lower(),
@@ -78,7 +79,7 @@ async def update_user(
     user_id: int,
     payload: UpdateUserRequest,
     session: AsyncSession = Depends(get_session),
-    admin: User | None = Depends(get_current_admin_user),
+    admin: User | None = Depends(get_current_super_user),
 ) -> UserResponse:
     user = await _user_or_404(session, user_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -94,7 +95,7 @@ async def reset_user_password(
     user_id: int,
     payload: ResetPasswordRequest,
     session: AsyncSession = Depends(get_session),
-    admin: User | None = Depends(get_current_admin_user),
+    admin: User | None = Depends(get_current_super_user),
 ) -> dict[str, bool]:
     user = await _user_or_404(session, user_id)
     user.password_hash = hash_password(payload.new_password)
@@ -103,7 +104,7 @@ async def reset_user_password(
 
 
 @router.post("/admin/users/{user_id}/disable")
-async def disable_user(user_id: int, session: AsyncSession = Depends(get_session), admin: User | None = Depends(get_current_admin_user)) -> dict[str, bool]:
+async def disable_user(user_id: int, session: AsyncSession = Depends(get_session), admin: User | None = Depends(get_current_super_user)) -> dict[str, bool]:
     user = await _user_or_404(session, user_id)
     user.is_active = False
     await session.commit()
@@ -111,7 +112,7 @@ async def disable_user(user_id: int, session: AsyncSession = Depends(get_session
 
 
 @router.post("/admin/users/{user_id}/enable")
-async def enable_user(user_id: int, session: AsyncSession = Depends(get_session), admin: User | None = Depends(get_current_admin_user)) -> dict[str, bool]:
+async def enable_user(user_id: int, session: AsyncSession = Depends(get_session), admin: User | None = Depends(get_current_super_user)) -> dict[str, bool]:
     user = await _user_or_404(session, user_id)
     user.is_active = True
     await session.commit()
@@ -121,6 +122,11 @@ async def enable_user(user_id: int, session: AsyncSession = Depends(get_session)
 @router.get("/admin/tables")
 async def list_allowed_tables(admin: User | None = Depends(get_current_admin_user)) -> dict[str, list[str]]:
     return {"tables": [*TABLES.keys(), "wallet_credentials_masked"]}
+
+
+@router.get("/admin/roles")
+async def list_roles(admin: User | None = Depends(get_current_admin_user)) -> dict[str, list[dict[str, str]]]:
+    return {"roles": [*USER_ROLE_OPTIONS]}
 
 
 @router.get("/admin/tables/{table_name}")
@@ -161,7 +167,18 @@ async def _user_or_404(session: AsyncSession, user_id: int) -> User:
 
 def _public_row(row: Any) -> dict[str, Any]:
     payload = {column.name: getattr(row, column.name) for column in row.__table__.columns}
-    for secret in ("password_hash", "encrypted_private_key", "encrypted_api_secret", "encrypted_api_passphrase"):
+    for secret in (
+        "password_hash",
+        "encrypted_private_key",
+        "encrypted_api_key",
+        "encrypted_api_secret",
+        "encrypted_api_passphrase",
+        "private_key",
+        "api_secret",
+        "api_passphrase",
+        "credential_encryption_key",
+        "jwt_secret_key",
+    ):
         payload.pop(secret, None)
     return payload
 

@@ -9,6 +9,7 @@ from sqlalchemy import Boolean, DateTime, Integer, Numeric
 from sqlalchemy.inspection import inspect
 
 from app.admin_panel.registry import AdminTable
+from app.schemas.auth import USER_ROLE_OPTIONS, USER_ROLE_VALUES
 from app.services.auth import hash_password
 
 
@@ -22,6 +23,9 @@ def field_specs(table: AdminTable, *, creating: bool) -> list[dict[str, Any]]:
     for field in table.form_fields(creating=creating):
         if field == "password":
             specs.append({"name": field, "label": "Password", "kind": "password", "required": creating})
+            continue
+        if field == "role":
+            specs.append({"name": field, "label": "Role", "kind": "select", "required": True, "options": USER_ROLE_OPTIONS})
             continue
         column = columns[field]
         specs.append(
@@ -51,6 +55,12 @@ def parse_form_data(table: AdminTable, form: dict[str, Any], *, creating: bool) 
         raw_value = form.get(field)
         if isinstance(column.type, Boolean):
             updates[field] = raw_value in ("on", "true", "True", "1", "yes")
+            continue
+        if field == "role":
+            role = str(raw_value or "").strip()
+            if role not in USER_ROLE_VALUES:
+                raise FormError("Role must be one of the allowed values.")
+            updates[field] = role
             continue
         if raw_value in (None, ""):
             if not column.nullable and column.default is None:

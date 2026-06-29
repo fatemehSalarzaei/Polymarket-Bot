@@ -2,7 +2,7 @@ export type User = {
   id: number;
   email: string;
   username: string;
-  role: "admin" | "trader" | "viewer" | string;
+  role: "super_user" | "admin" | "trader" | "viewer" | string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
