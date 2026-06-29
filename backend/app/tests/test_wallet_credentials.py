@@ -240,6 +240,24 @@ async def test_configure_encrypts_secrets_and_status_is_safe(sessionmaker: async
     assert "api_passphrase" not in body
 
 
+@pytest.mark.asyncio
+async def test_simple_wallet_defaults_to_eoa_and_does_not_require_funder(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        credential = await configure_wallet(
+            WalletConfigureRequest(private_key=PRIVATE_KEY),
+            session,
+            deriver=FakeCredentialDeriver(),
+        )
+        from app.services.wallet_credentials import get_wallet_readiness
+
+        readiness = await get_wallet_readiness(session)
+
+    assert credential.signature_type == 0
+    assert credential.funder_address is None
+    assert readiness.trading_ready is True
+    assert "WALLET_FUNDER_REQUIRED" not in readiness.blocking_reasons
+
+
 def test_configure_endpoint_uses_singleton_wallet_record(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async def override_get_session() -> AsyncIterator[AsyncSession]:
         async with sessionmaker() as session:

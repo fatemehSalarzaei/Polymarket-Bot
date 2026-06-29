@@ -43,6 +43,7 @@ class ApiCredentialDeriver(Protocol):
 
 @dataclass(frozen=True)
 class TradingCredentialBundle:
+    wallet_credential_id: int
     private_key: str
     wallet_address: str
     funder_address: str | None
@@ -285,6 +286,7 @@ async def get_active_wallet_credentials_for_trading(session: AsyncSession, *, us
     if not _api_credentials_configured(credential):
         raise AppError("WALLET_API_CREDENTIALS_MISSING", status_code=403)
     return TradingCredentialBundle(
+        wallet_credential_id=credential.id,
         private_key=decrypt_secret(credential.encrypted_private_key),
         wallet_address=credential.wallet_address,
         funder_address=credential.funder_address,

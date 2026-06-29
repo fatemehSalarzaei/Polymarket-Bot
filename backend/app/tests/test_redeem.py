@@ -20,9 +20,12 @@ from app.models.order import Order
 from app.models.redeem import RedeemRecord
 from app.models.settings import StrategySettings
 from app.models.settlement import Settlement
+from app.models.user import User
 from app.schemas.execution import GeoblockStatus
 from app.services.polymarket_redeem_adapter import RedeemAdapterResult, SafeDryRunRedeemAdapter
 from app.services.redeem_service import RedeemService
+from app.services.auth import hash_password
+from app.services.settlement_worker import SettlementWorker
 from app.tasks.redeem_tasks import redeem_resolved_winning_positions_job, redeem_resolved_winning_positions_task
 
 
@@ -239,6 +242,57 @@ async def test_celery_redeem_task_imports_and_runs_safely(sessionmaker: async_se
     assert result["redeems"][0]["status"] == "SKIPPED_DRY_RUN"
 
 
+@pytest.mark.asyncio
+async def test_redeem_task_is_user_scoped_for_shared_market(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        user_one = User(username="winner", email="winner@example.com", password_hash=hash_password("password1234"))
+        user_two = User(username="loser", email="loser@example.com", password_hash=hash_password("password1234"))
+        session.add_all([user_one, user_two])
+        await session.flush()
+        market, _settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"), user_id=user_one.id)
+        await _seed_order(session, market, mode="real", outcome="DOWN", size_matched=Decimal("5"), user_id=user_two.id)
+        await session.commit()
+
+    result = await redeem_resolved_winning_positions_job(sessionmaker=sessionmaker, service=_service())
+
+    async with sessionmaker() as session:
+        records = list((await session.execute(select(RedeemRecord))).scalars().all())
+
+    assert result["processed"] == 1
+    assert len(records) == 1
+    assert records[0].user_id == user_one.id
+
+
+@pytest.mark.asyncio
+async def test_internal_settlement_redeem_record_waits_for_official_resolution(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sessionmaker() as session:
+        market = Market(
+            event_slug="btc-updown-internal",
+            market_slug="btc-updown-internal",
+            condition_id="condition-internal",
+            question="BTC Up or Down",
+            active=False,
+            closed=True,
+            up_token_id="up-token",
+            down_token_id="down-token",
+            raw_event={},
+            raw_market={},
+        )
+        session.add(market)
+        await session.flush()
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"), user_id=7)
+
+        await SettlementWorker().settle_market(session, market=market, winning_outcome="UP", user_id=7)
+        records = list((await session.execute(select(RedeemRecord))).scalars().all())
+
+    assert len(records) == 1
+    assert records[0].status == "NOT_ELIGIBLE"
+    assert records[0].error_message == "OFFICIAL_RESOLUTION_MISSING"
+
+
 class FakeGeoblockClient:
     def __init__(self, *, blocked: bool = False) -> None:
         self.blocked = blocked
@@ -283,6 +337,8 @@ def _service(
     geoblocked: bool = False,
 ) -> RedeemService:
     config = settings or _settings()
+    if not config.private_key:
+        return RedeemService(settings=config, geoblock_client=FakeGeoblockClient(blocked=geoblocked))
     adapter = (
         NotImplementedRedeemAdapter(wallet_address=config.polymarket_funder_address or None)
         if not config.redeem_dry_run and not config.real_order_dry_run
@@ -336,8 +392,10 @@ async def _seed_order(
     mode: str,
     outcome: str,
     size_matched: Decimal,
+    user_id: int | None = None,
 ) -> Order:
     order = Order(
+        user_id=user_id,
         market_id=market.id,
         mode=mode,
         token_id=market.up_token_id if outcome == "UP" else market.down_token_id,

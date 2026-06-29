@@ -7,6 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.errors import AppError
 from app.models.market import Market
 from app.models.order import Order
 from app.models.redeem import RedeemRecord
@@ -14,7 +15,7 @@ from app.models.settlement import Settlement
 from app.schemas.execution import GeoblockStatus
 from app.schemas.redeem import RedeemAttemptResult, RedeemEligibilityResponse, RedeemRecordResponse
 from app.services.geoblock import GeoblockClient
-from app.services.polymarket_redeem_adapter import PolymarketRedeemAdapter, build_redeem_adapter
+from app.services.polymarket_redeem_adapter import PolymarketRedeemAdapter, build_redeem_adapter_from_stored_wallet
 from app.services.settings import get_or_create_strategy_settings
 
 
@@ -42,7 +43,7 @@ class RedeemService:
         geoblock_client: GeoblockStatusProvider | None = None,
     ) -> None:
         self._settings = settings or get_settings()
-        self._adapter = adapter or build_redeem_adapter(self._settings)
+        self._adapter = adapter
         self._geoblock_client = geoblock_client or GeoblockClient()
 
     async def check_redeem_eligibility(
@@ -87,7 +88,7 @@ class RedeemService:
             reasons.append("REDEEM_DISABLED")
         if strategy_settings.kill_switch_active or self._settings.kill_switch_active:
             reasons.append("KILL_SWITCH_ACTIVE")
-        if not _credentials_configured(self._settings):
+        if not await self._credentials_configured(session, user_id=user_id):
             reasons.append("CREDENTIALS_MISSING")
 
         if "CREDENTIALS_MISSING" not in reasons:
@@ -140,7 +141,6 @@ class RedeemService:
 
         record.settlement_id = settlement.id
         record.winning_outcome = settlement.winning_outcome
-        record.wallet_address = self._adapter.wallet_address
         record.raw_request = {
             "condition_id": market.condition_id,
             "index_sets": [1, 2],
@@ -156,8 +156,12 @@ class RedeemService:
             await session.refresh(record)
             return _attempt_result_from_record(record, reasons=eligibility.reasons)
 
+        adapter = await self._adapter_for_user(session, user_id=user_id)
+        record.wallet_credential_id = adapter.wallet_credential_id
+        record.wallet_address = adapter.wallet_address
+
         if self._settings.redeem_dry_run or self._settings.real_order_dry_run:
-            result = await self._adapter.redeem(market.condition_id, [1, 2])
+            result = await adapter.redeem(market.condition_id, [1, 2])
             record.status = "SKIPPED_DRY_RUN"
             record.tx_hash = None
             record.amount_redeemed = None
@@ -170,9 +174,9 @@ class RedeemService:
             return _attempt_result_from_record(record, reasons=["REDEEM_DRY_RUN"])
 
         try:
-            balance_before = await self.sync_wallet_balance()
-            result = await self._adapter.redeem(market.condition_id, [1, 2])
-            balance_after = await self.sync_wallet_balance()
+            balance_before = await self.sync_wallet_balance(adapter=adapter)
+            result = await adapter.redeem(market.condition_id, [1, 2])
+            balance_after = await self.sync_wallet_balance(adapter=adapter)
         except NotImplementedError as exc:
             record.status = "REDEEM_FAILED"
             record.error_message = str(exc)
@@ -200,11 +204,24 @@ class RedeemService:
         await session.refresh(record)
         return _attempt_result_from_record(record)
 
-    async def sync_wallet_balance(self) -> Decimal | None:
-        wallet_address = self._adapter.wallet_address
+    async def sync_wallet_balance(self, *, adapter: PolymarketRedeemAdapter | None = None) -> Decimal | None:
+        selected_adapter = adapter or self._adapter
+        if selected_adapter is None:
+            return None
+        wallet_address = selected_adapter.wallet_address
         if not wallet_address:
             return None
-        return await self._adapter.get_pusd_balance(wallet_address)
+        return await selected_adapter.get_pusd_balance(wallet_address)
+
+    async def _adapter_for_user(self, session: AsyncSession, *, user_id: int | None) -> PolymarketRedeemAdapter:
+        if self._adapter is not None:
+            return self._adapter
+        return await build_redeem_adapter_from_stored_wallet(session, user_id=user_id, settings=self._settings)
+
+    async def _credentials_configured(self, session: AsyncSession, *, user_id: int | None) -> bool:
+        if self._adapter is not None:
+            return self._adapter.credentials_configured
+        return await _credentials_configured(session, user_id=user_id)
 
 
 async def list_redeem_records(session: AsyncSession, *, limit: int = 100, user_id: int | None = None) -> list[RedeemRecord]:
@@ -273,14 +290,12 @@ def _status_from_reasons(reasons: list[str], settings: Settings) -> str:
     return "READY_TO_REDEEM"
 
 
-def _credentials_configured(settings: Settings) -> bool:
-    return bool(
-        settings.private_key
-        and settings.polymarket_api_key
-        and settings.polymarket_api_secret
-        and settings.polymarket_api_passphrase
-        and settings.polymarket_funder_address
-    )
+async def _credentials_configured(session: AsyncSession, *, user_id: int | None) -> bool:
+    try:
+        await build_redeem_adapter_from_stored_wallet(session, user_id=user_id)
+    except AppError:
+        return False
+    return True
 
 
 def _has_official_resolution(settlement: Settlement) -> bool:

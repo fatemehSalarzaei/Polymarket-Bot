@@ -10,6 +10,7 @@ import type { TradingReadiness, TradingStatus } from "@/types/trading";
 import { ApiError, type StructuredError } from "@/types/error";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+export const REAL_TRADING_CONFIRMATION_PHRASE = "ENABLE REAL TRADING";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -195,10 +196,10 @@ export function getTradingStatus() {
   return request<TradingStatus>("/trading/status");
 }
 
-export function enableTrading(confirmPhrase: string) {
+export function enableTrading() {
   return request<TradingStatus>("/trading/enable", {
     method: "POST",
-    body: JSON.stringify({ confirm_phrase: confirmPhrase }),
+    body: JSON.stringify({ confirm_phrase: REAL_TRADING_CONFIRMATION_PHRASE }),
   });
 }
 

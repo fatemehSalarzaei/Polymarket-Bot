@@ -51,9 +51,11 @@ export function RedeemPanel({ redeems }: { redeems: RedeemRecord[] }) {
                   <td className="max-w-[12rem] truncate py-3 pr-4 text-zinc-600">{redeem.tx_hash ?? "-"}</td>
                   <td className="py-3 pr-4 text-zinc-700">{formatDecimal(redeem.amount_redeemed)}</td>
                   <td className="py-3 pr-4 text-zinc-700">
-                    {formatDecimal(redeem.balance_before)} / {formatDecimal(redeem.balance_after)}
+                    {redeem.balance_before || redeem.balance_after
+                      ? `${formatDecimal(redeem.balance_before)} / ${formatDecimal(redeem.balance_after)}`
+                      : "-"}
                   </td>
-                  <td className="max-w-[18rem] truncate py-3 pr-4 text-zinc-600">{redeem.error_message ?? "-"}</td>
+                  <td className="max-w-[18rem] py-3 pr-4 text-zinc-600">{redeemMessage(redeem)}</td>
                 </tr>
               ))}
             </tbody>
@@ -62,6 +64,16 @@ export function RedeemPanel({ redeems }: { redeems: RedeemRecord[] }) {
       )}
     </section>
   );
+}
+
+function redeemMessage(redeem: RedeemRecord) {
+  if (redeem.error_message?.includes("OFFICIAL_RESOLUTION_MISSING")) {
+    return "Settlement calculated internally; redeem is waiting for official resolution.";
+  }
+  if (redeem.status === "SKIPPED_DRY_RUN") {
+    return "Dry-run skipped; no transaction submitted.";
+  }
+  return redeem.error_message ?? "-";
 }
 
 export function RedeemStatusBadge({ status }: { status: RedeemStatus }) {

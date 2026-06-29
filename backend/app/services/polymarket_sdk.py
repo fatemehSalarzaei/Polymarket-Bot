@@ -15,6 +15,9 @@ class ClobTradingClient(Protocol):
     async def place_order(self, request: PlaceOrderRequest) -> PlaceOrderResult:
         ...
 
+    async def get_order(self, order_id: str) -> dict:
+        ...
+
 
 class BackendOnlyClobSdkWrapper:
     def __init__(
@@ -57,6 +60,13 @@ class BackendOnlyClobSdkWrapper:
             )
         return await self._sdk_client.place_order(request)
 
+    async def get_order(self, order_id: str) -> dict:
+        if not self.credentials_configured:
+            return {"status": "FAILED", "error": self.credentials_missing_reason or "WALLET_API_CREDENTIALS_MISSING"}
+        if self._sdk_client is None or not hasattr(self._sdk_client, "get_order"):
+            return {"status": "FAILED", "error": "SDK_CLIENT_NOT_CONFIGURED"}
+        return await self._sdk_client.get_order(order_id)
+
 
 class PolymarketOrderSdkClient:
     def __init__(self, bundle: TradingCredentialBundle) -> None:
@@ -64,6 +74,9 @@ class PolymarketOrderSdkClient:
 
     async def place_order(self, request: PlaceOrderRequest) -> PlaceOrderResult:
         return await asyncio.to_thread(self._place_order_sync, request)
+
+    async def get_order(self, order_id: str) -> dict:
+        return await asyncio.to_thread(self._get_order_sync, order_id)
 
     def _place_order_sync(self, request: PlaceOrderRequest) -> PlaceOrderResult:
         try:
@@ -119,6 +132,34 @@ class PolymarketOrderSdkClient:
             external_order_id=external_order_id or None,
             raw_response=raw_response,
         )
+
+    def _get_order_sync(self, order_id: str) -> dict:
+        try:
+            from py_clob_client.client import ClobClient  # type: ignore
+            from py_clob_client.clob_types import ApiCreds  # type: ignore
+        except ImportError as exc:
+            return {"status": "FAILED", "error": f"SDK_IMPORT_FAILED:{type(exc).__name__}"}
+
+        settings = get_settings()
+        try:
+            client = ClobClient(
+                host=str(settings.polymarket_clob_host),
+                key=self._bundle.private_key,
+                chain_id=self._bundle.chain_id,
+                signature_type=self._bundle.signature_type,
+                funder=self._bundle.funder_address,
+            )
+            client.set_api_creds(
+                ApiCreds(
+                    api_key=self._bundle.api_key,
+                    api_secret=self._bundle.api_secret,
+                    api_passphrase=self._bundle.api_passphrase,
+                )
+            )
+            response = client.get_order(order_id)
+        except Exception as exc:
+            return {"status": "FAILED", "error": _safe_sdk_error(exc, self._bundle)}
+        return response if isinstance(response, dict) else {"response": str(response)}
 
 
 async def build_clob_sdk_from_stored_wallet(

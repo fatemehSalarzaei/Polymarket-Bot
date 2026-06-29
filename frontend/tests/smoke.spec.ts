@@ -38,6 +38,25 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: [orderFixture] });
       return;
     }
+    if (path.endsWith("/trading/readiness")) {
+      await route.fulfill({ json: tradingReadinessFixture });
+      return;
+    }
+    if (path.endsWith("/trading/enable")) {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        json: {
+          trading_enabled: body.confirm_phrase === "ENABLE REAL TRADING",
+          kill_switch_active: false,
+          real_order_dry_run: true,
+        },
+      });
+      return;
+    }
+    if (path.endsWith("/trading/disable")) {
+      await route.fulfill({ json: { trading_enabled: false, kill_switch_active: false, real_order_dry_run: true } });
+      return;
+    }
     if (path.endsWith("/pnl/summary")) {
       await route.fulfill({ json: pnlFixture });
       return;
@@ -123,7 +142,7 @@ test("logs load", async ({ page }) => {
 test("wallet page renders status", async ({ page }) => {
   await page.goto("/wallet");
   await expect(page.getByRole("heading", { name: "Polymarket Credentials" })).toBeVisible();
-  await expect(page.getByText(walletConfiguredFixture.wallet_address)).toBeVisible();
+  await expect(page.getByText(maskAddress(walletConfiguredFixture.wallet_address))).toBeVisible();
   await expect(page.getByText(walletConfiguredFixture.api_key_masked)).toBeVisible();
 });
 
@@ -131,10 +150,20 @@ test("wallet configure form posts and never displays private key", async ({ page
   const privateKey = "0x0000000000000000000000000000000000000000000000000000000000000001";
   await page.goto("/wallet");
   await page.getByLabel("Private Key").fill(privateKey);
-  await page.getByRole("button", { name: "Save & Derive API Credentials" }).click();
+  await expect(page.getByText("Advanced wallet settings")).toBeVisible();
+  await page.getByRole("button", { name: "Save Wallet" }).click();
   await expect(page.getByText("Wallet configuration saved")).toBeVisible();
   await expect(page.getByLabel("Private Key")).toHaveValue("");
   await expect(page.getByText(privateKey)).toHaveCount(0);
+});
+
+test("trading enable uses confirmation modal without typed phrase", async ({ page }) => {
+  await page.goto("/trading");
+  await expect(page.getByText("Confirmation phrase")).toHaveCount(0);
+  await page.getByRole("button", { name: "Enable real trading" }).click();
+  await expect(page.getByText("Are you sure you want to enable real trading?")).toBeVisible();
+  await page.getByRole("button", { name: "Yes, enable real trading" }).click();
+  await expect(page.getByText("Real trading setting enabled")).toBeVisible();
 });
 
 test("wallet test and delete buttons call backend", async ({ page }) => {
@@ -265,7 +294,7 @@ const walletConfiguredFixture = {
   configured: true,
   wallet_address: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
   funder_address: null,
-  signature_type: 3,
+  signature_type: 0,
   chain_id: 137,
   api_key_configured: true,
   api_key_masked: "api-ke...1234",
@@ -273,6 +302,10 @@ const walletConfiguredFixture = {
   last_error: null,
   updated_at: "2026-06-27T12:30:00Z",
 };
+
+function maskAddress(value: string) {
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
 
 const walletEmptyFixture = {
   configured: false,
@@ -294,6 +327,26 @@ const walletTestFixture = {
   api_key_configured: true,
   trading_ready: true,
   issues: [],
+};
+
+const tradingReadinessFixture = {
+  wallet: {
+    wallet_configured: true,
+    api_credentials_configured: true,
+    private_key_decryptable: true,
+    funder_address_configured: false,
+    signature_type: 0,
+    chain_id: 137,
+    trading_ready: true,
+    blocking_reasons: [],
+  },
+  geoblock: { blocked: false, checked: true, raw_response: {} },
+  paper_trading_enabled: true,
+  trading_enabled: false,
+  kill_switch_active: false,
+  real_order_dry_run: true,
+  trading_ready: true,
+  blocking_reasons: [],
 };
 
 function snapshot(outcome: string, tokenId: string) {

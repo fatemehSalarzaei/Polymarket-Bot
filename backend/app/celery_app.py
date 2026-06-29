@@ -11,6 +11,7 @@ celery_app = Celery(
     backend=str(settings.redis_url),
     include=[
         "app.tasks.market_tasks",
+        "app.tasks.order_tasks",
         "app.tasks.strategy_tasks",
         "app.tasks.settlement_tasks",
         "app.tasks.redeem_tasks",
@@ -40,6 +41,10 @@ celery_app.conf.update(
         "settle-finished-markets": {
             "task": "app.tasks.settlement.settle_finished_markets",
             "schedule": 15.0,
+        },
+        "reconcile-open-real-orders": {
+            "task": "app.tasks.orders.reconcile_open_real_orders",
+            "schedule": 10.0,
         },
         "redeem-resolved-winning-positions": {
             "task": "app.tasks.redeem.redeem_resolved_winning_positions",

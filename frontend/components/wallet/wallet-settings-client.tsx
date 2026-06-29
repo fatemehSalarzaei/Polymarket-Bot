@@ -14,10 +14,10 @@ import { ApiError, type StructuredError } from "@/types/error";
 import type { WalletStatus, WalletTestResponse } from "@/types/wallet";
 
 const signatureTypes = [
-  { value: 0, label: "0: EOA" },
-  { value: 1, label: "1: POLY_PROXY" },
-  { value: 2, label: "2: GNOSIS_SAFE" },
-  { value: 3, label: "3: POLY_1271 / Deposit Wallet" },
+  { value: 0, label: "0: EOA / private-key wallet" },
+  { value: 1, label: "1: Proxy wallet" },
+  { value: 2, label: "2: Gnosis Safe" },
+  { value: 3, label: "3: Deposit / POLY_1271 wallet" },
 ];
 
 export function WalletSettingsClient() {
@@ -25,9 +25,10 @@ export function WalletSettingsClient() {
   const [testResult, setTestResult] = useState<WalletTestResponse | null>(null);
   const [privateKey, setPrivateKey] = useState("");
   const [funderAddress, setFunderAddress] = useState("");
-  const [signatureType, setSignatureType] = useState(3);
+  const [signatureType, setSignatureType] = useState(0);
   const [chainId, setChainId] = useState(137);
   const [deriveCredentials, setDeriveCredentials] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<StructuredError | string | null>(null);
@@ -61,11 +62,15 @@ export function WalletSettingsClient() {
   }
 
   function submitConfigure() {
+    if (signatureType === 3 && !funderAddress.trim()) {
+      setError("Funder / deposit wallet address is required for signature type 3.");
+      return;
+    }
     void runAction(
       () =>
         configureWallet({
           private_key: privateKey,
-          funder_address: funderAddress || null,
+          funder_address: signatureType === 0 ? null : funderAddress || null,
           signature_type: signatureType,
           chain_id: chainId,
           derive_api_credentials: deriveCredentials,
@@ -95,11 +100,14 @@ export function WalletSettingsClient() {
             <StatusBadge configured={Boolean(status?.configured)} />
           </div>
           <div className="mt-4 grid gap-3 text-sm">
-            <Info label="Wallet Address" value={status?.wallet_address ?? "-"} />
-            <Info label="Funder Address" value={status?.funder_address ?? "-"} />
+            <Info label="Wallet configured" value={status?.configured ? "yes" : "no"} />
+            <Info label="Derived wallet address" value={maskAddress(status?.wallet_address)} />
+            <Info label="API credentials configured" value={status?.api_key_configured ? "yes" : "no"} />
+            <Info label="Trading ready" value={status?.configured && status.api_key_configured && status.chain_id === 137 && (status.signature_type !== 3 || Boolean(status.funder_address)) ? "yes" : "no"} />
+            <Info label="API Key" value={status?.api_key_configured ? status.api_key_masked ?? "configured" : "not configured"} />
             <Info label="Signature Type" value={status?.signature_type?.toString() ?? "-"} />
             <Info label="Chain ID" value={status?.chain_id?.toString() ?? "-"} />
-            <Info label="API Key" value={status?.api_key_configured ? status.api_key_masked ?? "configured" : "not configured"} />
+            <Info label="Funder Address" value={maskAddress(status?.funder_address)} />
             <Info label="Last Validated" value={formatDate(status?.last_validated_at)} />
             <Info label="Last Error" value={status?.last_error ?? "-"} />
             <Info label="Updated" value={formatDate(status?.updated_at)} />
@@ -129,7 +137,7 @@ export function WalletSettingsClient() {
         <section className="rounded-md border border-zinc-200 bg-white p-5">
           <h3 className="font-semibold">Configure Wallet</h3>
           <p className="mt-2 text-sm text-zinc-600">
-            Private key is sent only to the backend and stored encrypted. It is never displayed again.
+            Simple setup only needs your private key. The backend derives your wallet address and Polymarket API credentials.
           </p>
           <div className="mt-4 grid gap-4">
             <label className="grid gap-1 text-sm font-medium">
@@ -147,32 +155,56 @@ export function WalletSettingsClient() {
                 </button>
               </div>
             </label>
-            <label className="grid gap-1 text-sm font-medium">
-              Funder Address
-              <input className="input" value={funderAddress} onChange={(event) => setFunderAddress(event.target.value)} placeholder="Optional" />
-            </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-medium">
-                Signature Type
-                <select className="input" value={signatureType} onChange={(event) => setSignatureType(Number(event.target.value))}>
-                  {signatureTypes.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium">
-                Chain ID
-                <input className="input" type="number" value={chainId} onChange={(event) => setChainId(Number(event.target.value))} />
-              </label>
+            <div className="rounded-md border border-zinc-200 bg-zinc-50">
+              <button
+                className="flex w-full items-center justify-between px-3 py-3 text-left"
+                type="button"
+                onClick={() => setAdvancedOpen((value) => !value)}
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-ink">Advanced wallet settings</span>
+                  <span className="mt-1 block text-xs text-zinc-600">
+                    Only use these settings if your Polymarket account uses a deposit/proxy/smart-contract wallet.
+                  </span>
+                </span>
+                <span className="text-sm font-semibold text-accent">{advancedOpen ? "Hide" : "Show"}</span>
+              </button>
+              {advancedOpen ? (
+                <div className="grid gap-4 border-t border-zinc-200 p-3">
+                  <label className="grid gap-1 text-sm font-medium">
+                    Signature Type
+                    <select className="input" value={signatureType} onChange={(event) => setSignatureType(Number(event.target.value))}>
+                      {signatureTypes.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {signatureType !== 0 ? (
+                    <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+                      Proxy, Safe, and deposit wallet modes may require a funder/deposit wallet address.
+                    </p>
+                  ) : null}
+                  {signatureType !== 0 ? (
+                    <label className="grid gap-1 text-sm font-medium">
+                      Funder / Deposit Wallet Address
+                      <input className="input" value={funderAddress} onChange={(event) => setFunderAddress(event.target.value)} placeholder="0x..." required={signatureType === 3} />
+                    </label>
+                  ) : null}
+                  <label className="grid gap-1 text-sm font-medium">
+                    Chain ID
+                    <input className="input" type="number" value={chainId} onChange={(event) => setChainId(Number(event.target.value))} />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input type="checkbox" checked={deriveCredentials} onChange={(event) => setDeriveCredentials(event.target.checked)} />
+                    Derive API credentials
+                  </label>
+                </div>
+              ) : null}
             </div>
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={deriveCredentials} onChange={(event) => setDeriveCredentials(event.target.checked)} />
-              Create or derive API credentials
-            </label>
-            <button className="btn-primary w-fit" disabled={loading || !privateKey} onClick={submitConfigure}>
-              Save & Derive API Credentials
+            <button className="btn-primary w-fit" disabled={loading || !privateKey || (signatureType === 3 && !funderAddress.trim())} onClick={submitConfigure}>
+              Save Wallet
             </button>
           </div>
         </section>
@@ -239,4 +271,11 @@ function formatDate(value: string | null | undefined) {
     return "-";
   }
   return new Date(value).toLocaleString();
+}
+
+function maskAddress(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+  return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value;
 }

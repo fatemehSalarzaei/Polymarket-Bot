@@ -11,7 +11,7 @@ SIGNATURE_TYPES = {0, 1, 2, 3}
 class WalletConfigureRequest(BaseModel):
     private_key: str
     funder_address: str | None = None
-    signature_type: Literal[0, 1, 2, 3] = 3
+    signature_type: Literal[0, 1, 2, 3] = 0
     chain_id: int = 137
     derive_api_credentials: bool = True
 

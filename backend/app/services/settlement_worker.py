@@ -77,7 +77,14 @@ class SettlementWorker:
             resolved_at=resolved_at or datetime.now(UTC),
             paper_pnl=paper_pnl,
             real_pnl=real_pnl,
-            raw_resolution={"winning_outcome": winning_outcome},
+            raw_resolution={
+                "winning_outcome": winning_outcome,
+                "official": False,
+                "resolved_by_polymarket": False,
+                "resolution_source": "internal_chainlink_calculation",
+                "resolution_checked_at": None,
+                "condition_id": market.condition_id,
+            },
         )
         session.add(settlement)
         await session.flush()
@@ -112,12 +119,43 @@ async def _create_redeem_record_if_ready(
     ]
     if not winning_real_orders or not market.condition_id:
         return
+    if user_id is None:
+        user_ids = sorted({order.user_id for order in winning_real_orders}, key=lambda value: -1 if value is None else value)
+        for winning_user_id in user_ids:
+            user_orders = [order for order in winning_real_orders if order.user_id == winning_user_id]
+            await _create_redeem_record_for_user(
+                session,
+                market=market,
+                settlement=settlement,
+                winning_real_orders=user_orders,
+                user_id=winning_user_id,
+            )
+        return
+    await _create_redeem_record_for_user(
+        session,
+        market=market,
+        settlement=settlement,
+        winning_real_orders=winning_real_orders,
+        user_id=user_id,
+    )
+
+
+async def _create_redeem_record_for_user(
+    session: AsyncSession,
+    *,
+    market: Market,
+    settlement: Settlement,
+    winning_real_orders: list[Order],
+    user_id: int | None,
+) -> None:
     statement = select(RedeemRecord.id).where(
         RedeemRecord.market_id == market.id,
         RedeemRecord.condition_id == market.condition_id,
         RedeemRecord.mode == "real",
     )
-    if user_id is not None:
+    if user_id is None:
+        statement = statement.where(RedeemRecord.user_id.is_(None))
+    else:
         statement = statement.where(RedeemRecord.user_id == user_id)
     existing = await session.execute(statement.limit(1))
     if existing.scalar_one_or_none() is not None:
@@ -130,9 +168,10 @@ async def _create_redeem_record_if_ready(
             settlement_id=settlement.id,
             condition_id=market.condition_id,
             winning_outcome=settlement.winning_outcome,
-            status="READY_TO_REDEEM",
+            status="READY_TO_REDEEM" if _has_official_resolution(settlement) else "NOT_ELIGIBLE",
             mode="real",
             raw_request={},
+            error_message=None if _has_official_resolution(settlement) else "OFFICIAL_RESOLUTION_MISSING",
             raw_response={"created_by": "settlement_worker"},
         )
     )
@@ -142,6 +181,11 @@ def _decimal_or_none(value) -> Decimal | None:
     if value is None or value == "":
         return None
     return Decimal(str(value))
+
+
+def _has_official_resolution(settlement: Settlement) -> bool:
+    raw_resolution = settlement.raw_resolution or {}
+    return bool(raw_resolution.get("official") or raw_resolution.get("resolved_by_polymarket"))
 
 
 async def _nearest_tick(session: AsyncSession, unix_ts: int | None) -> ChainlinkTick | None:
