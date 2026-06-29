@@ -3,17 +3,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-from typing import Literal
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_sessionmaker
 from app.models.user import User
+from app.schemas.auth import UserRole, USER_ROLE_VALUES
 from app.services.auth import hash_password
 
 
-VALID_ROLES = {"admin", "trader", "viewer"}
+VALID_ROLES = USER_ROLE_VALUES
 MIN_PASSWORD_LENGTH = 10
 
 
@@ -125,7 +125,7 @@ async def create_or_update_user_command(
     username: str,
     email: str,
     password: str | None,
-    role: Literal["admin", "trader", "viewer"],
+    role: UserRole,
     replace_existing: bool,
 ) -> None:
     username = normalize_username(username)

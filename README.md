@@ -16,6 +16,34 @@ alembic upgrade head
 python -m app.scripts.create_admin_user --email admin@example.com --username admin
 ```
 
+Available user roles:
+
+- `admin`: can access the backend admin panel and view management data.
+- `super_user`: highest-level admin account; can create/edit users and perform protected admin mutations.
+- `trader`: regular trading user.
+- `viewer`: read-only or limited-access user.
+
+Create the first super user when you need protected admin mutations such as creating or editing users:
+
+```bash
+cd backend
+python -m app.scripts.create_admin_user --email super@example.com --username superadmin --role super_user
+```
+
+You can also use the dedicated alias:
+
+```bash
+python -m app.scripts.create_super_user --email super@example.com --username superadmin
+```
+
+To safely promote an existing admin account, pass `--update-role` explicitly:
+
+```bash
+python -m app.scripts.create_admin_user --email admin@example.com --username admin --role super_user --update-role
+```
+
+The script will not overwrite an existing password unless you explicitly pass `--reset-password`.
+
 Required auth/security envs:
 
 ```env
