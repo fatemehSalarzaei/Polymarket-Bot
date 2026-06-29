@@ -1,0 +1,10 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="form-panel">
+    <h2>{{ status_code }}</h2>
+    <p>{{ message }}</p>
+    <div class="actions">
+      <a class="button secondary" href="/admin-panel">Dashboard</a>
+    </div>
+  </div>
+{% endblock %}

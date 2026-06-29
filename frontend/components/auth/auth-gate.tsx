@@ -4,15 +4,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { getMe } from "@/lib/api-client";
-import type { User } from "@/types/auth";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [ready, setReady] = useState(pathname === "/login");
-  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
+    setReady(pathname === "/login");
     if (pathname === "/login") {
       setReady(true);
       return;
@@ -25,11 +24,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           router.replace("/login");
           return;
         }
-        if (pathname.startsWith("/admin") && me.user.role !== "admin") {
-          router.replace("/dashboard");
-          return;
-        }
-        setUser(me.user);
         setReady(true);
       })
       .catch(() => {

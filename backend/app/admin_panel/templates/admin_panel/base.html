@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title or "Admin Panel" }} | Polymarket Bot</title>
+    <link rel="stylesheet" href="/admin-panel/static/admin_panel.css">
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <small>Polymarket Bot</small>
+          <h1>Admin Panel</h1>
+        </div>
+        <nav class="nav">
+          <a href="/admin-panel">Dashboard</a>
+          <a href="/admin-panel/tables">Tables</a>
+          <a href="/admin-panel/tables/users">Users</a>
+          <a href="/admin-panel/tables/audit_logs">Audit Logs</a>
+          <a href="/dashboard">Frontend Dashboard</a>
+        </nav>
+        <form class="logout-form" method="post" action="/admin-panel/logout">
+          <button class="logout-button" type="submit">Logout</button>
+        </form>
+      </aside>
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

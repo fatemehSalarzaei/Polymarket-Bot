@@ -1,0 +1,49 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="topbar">
+    <div>
+      <h2>{{ table.label }}</h2>
+      <p class="muted">Page {{ page }} · Limit {{ limit }}</p>
+    </div>
+    {% if table.creatable %}
+      <a class="button" href="/admin-panel/tables/{{ table.name }}/new">Add</a>
+    {% endif %}
+  </div>
+  <div class="table-panel">
+    <table>
+      <thead>
+        <tr>
+          {% for field in fields %}
+            <th>{{ field }}</th>
+          {% endfor %}
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            {% for field in fields %}
+              <td>{{ row[field] }}</td>
+            {% endfor %}
+            <td>
+              <a href="/admin-panel/tables/{{ table.name }}/{{ row.id }}">View</a>
+              {% if table.editable %}
+                · <a href="/admin-panel/tables/{{ table.name }}/{{ row.id }}/edit">Edit</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="{{ fields|length + 1 }}">No records found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="actions">
+    {% if page > 1 %}
+      <a class="button secondary" href="/admin-panel/tables/{{ table.name }}?page={{ page - 1 }}&limit={{ limit }}">Previous</a>
+    {% endif %}
+    {% if rows|length == limit %}
+      <a class="button secondary" href="/admin-panel/tables/{{ table.name }}?page={{ page + 1 }}&limit={{ limit }}">Next</a>
+    {% endif %}
+  </div>
+{% endblock %}

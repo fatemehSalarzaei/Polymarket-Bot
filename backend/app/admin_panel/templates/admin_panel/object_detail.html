@@ -1,0 +1,26 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="topbar">
+    <h2>{{ table.label }} #{{ object_id }}</h2>
+    {% if table.editable %}
+      <a class="button" href="/admin-panel/tables/{{ table.name }}/{{ object_id }}/edit">Edit</a>
+    {% endif %}
+  </div>
+  <div class="table-panel">
+    <table>
+      <tbody>
+        {% for field, value in row.items() %}
+          <tr>
+            <th>{{ field }}</th>
+            <td>{{ value }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if table.deletable %}
+    <form class="actions" method="post" action="/admin-panel/tables/{{ table.name }}/{{ object_id }}/delete" onsubmit="return confirm('Delete this record?');">
+      <button class="button danger" type="submit">Delete</button>
+    </form>
+  {% endif %}
+{% endblock %}

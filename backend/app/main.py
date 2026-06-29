@@ -10,7 +10,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
+from app.admin_panel.routes import router as admin_panel_router
 from app.api.routes import admin, auth, bot, health, logs, markets, orders, pnl, redeem, strategy, trading, wallet, ws
 from app.core.config import get_settings
 from app.core.errors import AppError, build_error_response, code_from_detail
@@ -48,6 +50,8 @@ app.include_router(redeem.router, prefix="/api", tags=["redeem"])
 app.include_router(logs.router, prefix="/api", tags=["logs"])
 app.include_router(wallet.router, prefix="/api", tags=["wallet"])
 app.include_router(ws.router, tags=["websocket"])
+app.include_router(admin_panel_router)
+app.mount("/admin-panel/static", StaticFiles(directory="app/admin_panel/static"), name="admin_panel_static")
 
 
 def _request_id(request: Request) -> str:

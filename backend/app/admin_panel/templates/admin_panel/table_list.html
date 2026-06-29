@@ -1,0 +1,30 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="topbar">
+    <h2>Tables</h2>
+  </div>
+  <div class="table-panel">
+    <table>
+      <thead>
+        <tr>
+          <th>Table</th>
+          <th>Mode</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for table in tables %}
+          <tr>
+            <td><a href="/admin-panel/tables/{{ table.name }}">{{ table.label }}</a></td>
+            <td>
+              {% if table.read_only %}Read-only{% endif %}
+              {% if table.creatable %}Creatable{% endif %}
+              {% if table.editable %}{% if table.creatable %}, {% endif %}Editable{% endif %}
+            </td>
+            <td><a href="/admin-panel/tables/{{ table.name }}">Open</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

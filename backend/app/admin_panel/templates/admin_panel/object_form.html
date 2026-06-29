@@ -1,0 +1,33 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="topbar">
+    <h2>{% if creating %}New{% else %}Edit{% endif %} {{ table.label }}</h2>
+  </div>
+  <form class="form-panel" method="post">
+    {% if error %}
+      <div class="alert">{{ error }}</div>
+    {% endif %}
+    {% for field in fields %}
+      <div class="field">
+        <label for="{{ field.name }}">{{ field.label }}</label>
+        {% if field.kind == "boolean" %}
+          <input id="{{ field.name }}" name="{{ field.name }}" type="checkbox" {% if values[field.name] %}checked{% endif %}>
+        {% elif field.kind == "json" %}
+          <textarea id="{{ field.name }}" name="{{ field.name }}" {% if field.required %}required{% endif %}>{{ values[field.name] or "" }}</textarea>
+        {% else %}
+          <input
+            id="{{ field.name }}"
+            name="{{ field.name }}"
+            type="{% if field.kind == 'password' %}password{% else %}text{% endif %}"
+            value="{% if field.kind != 'password' %}{{ values[field.name] or "" }}{% endif %}"
+            {% if field.required %}required{% endif %}
+          >
+        {% endif %}
+      </div>
+    {% endfor %}
+    <div class="actions">
+      <button class="button" type="submit">Save</button>
+      <a class="button secondary" href="/admin-panel/tables/{{ table.name }}{% if object_id %}/{{ object_id }}{% endif %}">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

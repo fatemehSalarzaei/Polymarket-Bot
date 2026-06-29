@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin Login | Polymarket Bot</title>
+    <link rel="stylesheet" href="/admin-panel/static/admin_panel.css">
+  </head>
+  <body>
+    <main class="login-page">
+      <form class="login-card" method="post" action="/admin-panel/login">
+        <div class="brand">
+          <small>Polymarket Bot</small>
+          <h1>Admin Login</h1>
+        </div>
+        {% if error %}
+          <div class="alert">{{ error }}</div>
+        {% endif %}
+        <div class="field">
+          <label for="username">Username or email</label>
+          <input id="username" name="username" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="button" type="submit">Login</button>
+      </form>
+    </main>
+  </body>
+</html>

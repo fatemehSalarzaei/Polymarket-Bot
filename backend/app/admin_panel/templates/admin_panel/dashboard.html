@@ -1,0 +1,18 @@
+{% extends "admin_panel/base.html" %}
+{% block content %}
+  <div class="topbar">
+    <div>
+      <h2>Dashboard</h2>
+      <p class="muted">Signed in as {{ admin.username }}</p>
+    </div>
+  </div>
+  <section class="grid">
+    <div class="card"><span class="muted">Total users</span><div class="metric">{{ stats.total_users }}</div></div>
+    <div class="card"><span class="muted">Active users</span><div class="metric">{{ stats.active_users }}</div></div>
+    <div class="card"><span class="muted">Configured wallets</span><div class="metric">{{ stats.configured_wallets }}</div></div>
+    <div class="card"><span class="muted">Real trading enabled</span><div class="metric">{{ stats.real_trading_enabled }}</div></div>
+    <div class="card"><span class="muted">Total orders</span><div class="metric">{{ stats.total_orders }}</div></div>
+    <div class="card"><span class="muted">Failed orders</span><div class="metric">{{ stats.failed_orders }}</div></div>
+    <div class="card"><span class="muted">Failed redeems</span><div class="metric">{{ stats.failed_redeems }}</div></div>
+  </section>
+{% endblock %}

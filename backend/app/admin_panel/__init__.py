@@ -1,0 +1,1 @@
+"""Backend-rendered admin panel."""
