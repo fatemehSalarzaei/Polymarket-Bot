@@ -207,6 +207,14 @@ npm run test:smoke
 - Users cannot enable real trading unless wallet, API credentials, geoblock, kill switch, chain id, and dry-run/confirmation readiness checks pass
 - The API bot start/stop endpoints record state; long-lived background work runs in Celery/realtime worker services
 
+## Trading mode and geoblock safety
+
+`REAL_ORDER_DRY_RUN=true` keeps execution in simulated mode. In this mode the trading page can enable dry-run trading when the wallet and kill switch checks pass, even if the backend reports `GEOBLOCK_BLOCKED`; the geoblock appears as a warning and real trading remains unavailable.
+
+`REAL_ORDER_DRY_RUN=false` switches the backend to real-order mode. Real trading then also requires `TRADING_ENABLED=true`, `REAL_TRADING_CONFIRMATION_ENABLED=true`, a ready wallet/API credential setup, an inactive kill switch, and a clear geoblock check.
+
+`GEOBLOCK_BLOCKED` means Polymarket reports the backend location as restricted. Do not bypass this for real-money trading; use paper/dry-run mode or run the backend only from a legally allowed location.
+
 ## Settlement, Redeem, And Wallet Balance
 
 Settlement/PnL is internal accounting: it records which side won and calculates paper/real PnL from stored orders. It does not mean real funds have returned to the Polymarket wallet.

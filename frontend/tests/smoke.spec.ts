@@ -42,6 +42,12 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: tradingReadinessFixture });
       return;
     }
+    if (path.endsWith("/trading/status")) {
+      await route.fulfill({
+        json: { trading_enabled: false, kill_switch_active: false, real_order_dry_run: true, mode: "dry_run" },
+      });
+      return;
+    }
     if (path.endsWith("/trading/enable")) {
       const body = route.request().postDataJSON();
       await route.fulfill({
@@ -49,12 +55,13 @@ test.beforeEach(async ({ page }) => {
           trading_enabled: body.confirm_phrase === "ENABLE REAL TRADING",
           kill_switch_active: false,
           real_order_dry_run: true,
+          mode: "dry_run",
         },
       });
       return;
     }
     if (path.endsWith("/trading/disable")) {
-      await route.fulfill({ json: { trading_enabled: false, kill_switch_active: false, real_order_dry_run: true } });
+      await route.fulfill({ json: { trading_enabled: false, kill_switch_active: false, real_order_dry_run: true, mode: "dry_run" } });
       return;
     }
     if (path.endsWith("/pnl/summary")) {
@@ -160,10 +167,10 @@ test("wallet configure form posts and never displays private key", async ({ page
 test("trading enable uses confirmation modal without typed phrase", async ({ page }) => {
   await page.goto("/trading");
   await expect(page.getByText("Confirmation phrase")).toHaveCount(0);
-  await page.getByRole("button", { name: "Enable real trading" }).click();
-  await expect(page.getByText("Are you sure you want to enable real trading?")).toBeVisible();
-  await page.getByRole("button", { name: "Yes, enable real trading" }).click();
-  await expect(page.getByText("Real trading setting enabled")).toBeVisible();
+  await page.getByRole("button", { name: "Enable dry-run trading" }).click();
+  await expect(page.getByText("Orders will be simulated.")).toBeVisible();
+  await page.getByRole("button", { name: "Yes, enable dry-run trading" }).click();
+  await expect(page.getByText("Dry-run trading setting enabled")).toBeVisible();
 });
 
 test("wallet test and delete buttons call backend", async ({ page }) => {
@@ -346,7 +353,13 @@ const tradingReadinessFixture = {
   kill_switch_active: false,
   real_order_dry_run: true,
   trading_ready: true,
+  paper_trading_ready: true,
+  dry_run_trading_ready: true,
+  real_trading_ready: false,
+  real_trading_available: false,
   blocking_reasons: [],
+  real_trading_blocking_reasons: ["REAL_ORDER_DRY_RUN_ACTIVE"],
+  warnings: [],
 };
 
 function snapshot(outcome: string, tokenId: string) {

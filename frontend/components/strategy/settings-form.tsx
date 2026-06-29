@@ -9,6 +9,7 @@ import { ConfirmationModal } from "@/components/strategy/confirmation-modal";
 
 type SettingsFormProps = {
   settings: StrategySettings | null;
+  realOrderDryRun?: boolean;
   onSaved: (settings: StrategySettings) => void;
 };
 
@@ -26,7 +27,7 @@ type FormState = {
   order_type: StrategySettings["order_type"];
 };
 
-export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
+export function SettingsForm({ settings, realOrderDryRun = true, onSaved }: SettingsFormProps) {
   const [form, setForm] = useState<FormState>(() => toFormState(settings));
   const [pendingPatch, setPendingPatch] = useState<StrategySettingsPatch | null>(null);
   const [saving, setSaving] = useState(false);
@@ -76,7 +77,7 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold">Settings</h3>
-          <p className="text-sm text-muted">Real trading remains backend-gated and disabled by default.</p>
+          <p className="text-sm text-muted">Trading execution remains backend-gated and disabled by default.</p>
         </div>
         <button
           className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -95,9 +96,13 @@ export function SettingsForm({ settings, onSaved }: SettingsFormProps) {
         />
         <Toggle
           checked={form.trading_enabled}
-          danger
-          label="Real Trading"
-          helper="Dangerous. Real trading remains disabled by default and backend-gated."
+          danger={!realOrderDryRun}
+          label={realOrderDryRun ? "Trading execution enabled" : "Real trading enabled"}
+          helper={
+            realOrderDryRun
+              ? "Orders will be simulated because backend dry-run mode is active."
+              : "The bot may submit real Polymarket orders if all safety checks pass."
+          }
           onChange={(value) => setForm((prev) => ({ ...prev, trading_enabled: value }))}
         />
         <Toggle

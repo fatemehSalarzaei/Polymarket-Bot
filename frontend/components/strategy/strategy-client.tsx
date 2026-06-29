@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { getCurrentDecision, getDecisionHistory, getStrategySettings } from "@/lib/api-client";
+import { getCurrentDecision, getDecisionHistory, getStrategySettings, getTradingStatus } from "@/lib/api-client";
 import type { StrategyDecision, StrategySettings } from "@/types/strategy";
+import type { TradingStatus } from "@/types/trading";
 import { DecisionCard } from "@/components/strategy/decision-card";
 import { DecisionHistory } from "@/components/strategy/decision-history";
 import { SettingsForm } from "@/components/strategy/settings-form";
@@ -13,6 +14,7 @@ export function StrategyClient() {
   const [settings, setSettings] = useState<StrategySettings | null>(null);
   const [currentDecision, setCurrentDecision] = useState<StrategyDecision | null>(null);
   const [decisions, setDecisions] = useState<StrategyDecision[]>([]);
+  const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,10 +22,11 @@ export function StrategyClient() {
 
     async function load() {
       setLoading(true);
-      const [settingsResult, currentResult, historyResult] = await Promise.allSettled([
+      const [settingsResult, currentResult, historyResult, tradingStatusResult] = await Promise.allSettled([
         getStrategySettings(),
         getCurrentDecision(),
         getDecisionHistory(),
+        getTradingStatus(),
       ]);
 
       if (cancelled) {
@@ -48,6 +51,12 @@ export function StrategyClient() {
         toast.error(errorMessage(historyResult.reason, "Failed to load decision history"));
       }
 
+      if (tradingStatusResult.status === "fulfilled") {
+        setTradingStatus(tradingStatusResult.value);
+      } else {
+        toast.error(errorMessage(tradingStatusResult.reason, "Failed to load trading mode"));
+      }
+
       setLoading(false);
     }
 
@@ -68,7 +77,7 @@ export function StrategyClient() {
 
       <div className="grid gap-5">
         <DecisionCard decision={currentDecision} />
-        <SettingsForm settings={settings} onSaved={setSettings} />
+        <SettingsForm settings={settings} realOrderDryRun={tradingStatus?.real_order_dry_run ?? true} onSaved={setSettings} />
         <DecisionHistory decisions={decisions} />
       </div>
     </section>
@@ -78,4 +87,3 @@ export function StrategyClient() {
 function errorMessage(value: unknown, fallback: string) {
   return value instanceof Error ? value.message : fallback;
 }
-

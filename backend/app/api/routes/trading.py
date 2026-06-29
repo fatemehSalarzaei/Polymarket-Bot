@@ -38,6 +38,7 @@ async def trading_status(
         trading_enabled=settings.trading_enabled,
         kill_switch_active=settings.kill_switch_active,
         real_order_dry_run=get_settings().real_order_dry_run,
+        mode=_trading_mode(),
     )
 
 
@@ -59,7 +60,12 @@ async def enable_trading(
     settings.trading_enabled = True
     session.add(_audit(current_user, "trading.enable", before, serialize_strategy_settings(settings), request))
     await session.commit()
-    return TradingStatusResponse(trading_enabled=True, kill_switch_active=settings.kill_switch_active, real_order_dry_run=get_settings().real_order_dry_run)
+    return TradingStatusResponse(
+        trading_enabled=True,
+        kill_switch_active=settings.kill_switch_active,
+        real_order_dry_run=get_settings().real_order_dry_run,
+        mode=_trading_mode(),
+    )
 
 
 @router.post("/trading/disable", response_model=TradingStatusResponse)
@@ -73,7 +79,12 @@ async def disable_trading(
     settings.trading_enabled = False
     session.add(_audit(current_user, "trading.disable", before, serialize_strategy_settings(settings), request))
     await session.commit()
-    return TradingStatusResponse(trading_enabled=False, kill_switch_active=settings.kill_switch_active, real_order_dry_run=get_settings().real_order_dry_run)
+    return TradingStatusResponse(
+        trading_enabled=False,
+        kill_switch_active=settings.kill_switch_active,
+        real_order_dry_run=get_settings().real_order_dry_run,
+        mode=_trading_mode(),
+    )
 
 
 @router.post("/trading/kill-switch/enable", response_model=TradingStatusResponse)
@@ -88,7 +99,12 @@ async def enable_kill_switch(
     settings.trading_enabled = False
     session.add(_audit(current_user, "trading.kill_switch.enable", before, serialize_strategy_settings(settings), request))
     await session.commit()
-    return TradingStatusResponse(trading_enabled=False, kill_switch_active=True, real_order_dry_run=get_settings().real_order_dry_run)
+    return TradingStatusResponse(
+        trading_enabled=False,
+        kill_switch_active=True,
+        real_order_dry_run=get_settings().real_order_dry_run,
+        mode=_trading_mode(),
+    )
 
 
 @router.post("/trading/kill-switch/disable", response_model=TradingStatusResponse)
@@ -102,7 +118,12 @@ async def disable_kill_switch(
     settings.kill_switch_active = False
     session.add(_audit(current_user, "trading.kill_switch.disable", before, serialize_strategy_settings(settings), request))
     await session.commit()
-    return TradingStatusResponse(trading_enabled=settings.trading_enabled, kill_switch_active=False, real_order_dry_run=get_settings().real_order_dry_run)
+    return TradingStatusResponse(
+        trading_enabled=settings.trading_enabled,
+        kill_switch_active=False,
+        real_order_dry_run=get_settings().real_order_dry_run,
+        mode=_trading_mode(),
+    )
 
 
 async def _readiness(
@@ -114,22 +135,44 @@ async def _readiness(
     user_id = user_id_or_none(current_user)
     settings = await get_or_create_strategy_settings(session, user_id=user_id)
     wallet = await get_wallet_readiness(session, user_id=user_id)
-    reasons = list(wallet.blocking_reasons)
+    current_mode_reasons = list(wallet.blocking_reasons)
+    real_reasons = list(wallet.blocking_reasons)
+    warnings: list[str] = []
+    config = get_settings()
     try:
         geoblock = await geoblock_client.get_status()
     except Exception:
         from app.schemas.execution import GeoblockStatus
 
         geoblock = GeoblockStatus(blocked=True, checked=False, raw_response={"error": "GEOBLOCK_CHECK_FAILED"})
-        reasons.append("GEOBLOCK_CHECK_FAILED")
-    if geoblock.blocked:
-        reasons.append("GEOBLOCK_BLOCKED")
+        if config.real_order_dry_run:
+            warnings.append("GEOBLOCK_CHECK_FAILED")
+        else:
+            current_mode_reasons.append("GEOBLOCK_CHECK_FAILED")
+        real_reasons.append("GEOBLOCK_CHECK_FAILED")
+    if geoblock.blocked and geoblock.checked:
+        if config.real_order_dry_run:
+            warnings.append("GEOBLOCK_BLOCKED")
+        else:
+            current_mode_reasons.append("GEOBLOCK_BLOCKED")
+        real_reasons.append("GEOBLOCK_BLOCKED")
     if settings.kill_switch_active:
-        reasons.append("KILL_SWITCH_ACTIVE")
-    config = get_settings()
+        current_mode_reasons.append("KILL_SWITCH_ACTIVE")
+        real_reasons.append("KILL_SWITCH_ACTIVE")
     if not config.real_order_dry_run and (not config.trading_enabled or not config.real_trading_confirmation_enabled):
-        reasons.append("REAL_TRADING_ENV_DISABLED")
-    reasons = list(dict.fromkeys(reasons))
+        current_mode_reasons.append("REAL_TRADING_ENV_DISABLED")
+        real_reasons.append("REAL_TRADING_ENV_DISABLED")
+    if config.real_order_dry_run:
+        real_reasons.append("REAL_ORDER_DRY_RUN_ACTIVE")
+    elif not (config.trading_enabled and config.real_trading_confirmation_enabled):
+        real_reasons.append("REAL_TRADING_ENV_DISABLED")
+    current_mode_reasons = list(dict.fromkeys(current_mode_reasons))
+    real_reasons = list(dict.fromkeys(real_reasons))
+    warnings = list(dict.fromkeys(warnings))
+    paper_trading_ready = not settings.kill_switch_active
+    dry_run_trading_ready = wallet.trading_ready and not settings.kill_switch_active
+    real_trading_ready = not real_reasons
+    real_trading_available = not config.real_order_dry_run and real_trading_ready
     return TradingReadinessResponse(
         wallet=wallet,
         geoblock=geoblock,
@@ -137,9 +180,19 @@ async def _readiness(
         trading_enabled=settings.trading_enabled,
         kill_switch_active=settings.kill_switch_active,
         real_order_dry_run=config.real_order_dry_run,
-        trading_ready=not reasons,
-        blocking_reasons=reasons,
+        trading_ready=not current_mode_reasons,
+        paper_trading_ready=paper_trading_ready,
+        dry_run_trading_ready=dry_run_trading_ready,
+        real_trading_ready=real_trading_ready,
+        real_trading_available=real_trading_available,
+        blocking_reasons=current_mode_reasons,
+        real_trading_blocking_reasons=real_reasons,
+        warnings=warnings,
     )
+
+
+def _trading_mode() -> str:
+    return "dry_run" if get_settings().real_order_dry_run else "real"
 
 
 def _audit(user: User | None, action: str, before: dict, after: dict, request: Request) -> AuditLog:
