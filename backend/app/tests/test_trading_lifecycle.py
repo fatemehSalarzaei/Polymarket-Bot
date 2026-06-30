@@ -5,10 +5,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+from app.api.routes.trading import _readiness
 from app.db.base import Base
 from app.models.market import Market
 from app.models.order import Order
@@ -17,6 +19,7 @@ from app.models.settlement import Settlement
 from app.models.settings import StrategySettings
 from app.models.tick import ChainlinkTick
 from app.schemas.execution import GeoblockStatus, PlaceOrderResult
+from app.schemas.wallet import WalletConfigureRequest
 from app.services.execution_engine import ExecutionEngine
 from app.services.order_reconciler import OrderReconciler
 from app.services.polymarket_resolution import OfficialResolution
@@ -27,7 +30,10 @@ from app.services.runtime_gate import set_bot_running
 from app.services.settlement_worker import SettlementWorker
 from app.services.strategy_engine import StrategyEngine
 from app.services.strategy_persistence import persist_strategy_decision
+from app.services.wallet_credentials import configure_wallet
 from app.tasks.strategy_tasks import evaluate_current_strategy_job
+
+PRIVATE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 
 @pytest.fixture()
@@ -109,13 +115,45 @@ async def test_real_dry_run_cycle_records_no_matched_size(sessionmaker: async_se
 @pytest.mark.asyncio
 async def test_successful_real_order_reconciles_settles_officially_and_redeems(
     sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch,
 ) -> None:
+    import app.api.routes.trading as trading_routes
+
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("TRADING_ENABLED", "true")
+    monkeypatch.setenv("REAL_TRADING_CONFIRMATION_ENABLED", "true")
+    monkeypatch.setenv("REAL_ORDER_DRY_RUN", "false")
+    monkeypatch.setenv("REDEEM_ENABLED", "true")
+    monkeypatch.setenv("REDEEM_DRY_RUN", "false")
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.example")
+    monkeypatch.setattr(trading_routes, "clob_sdk_import_error", lambda: None)
+    get_settings.cache_clear()
     async with sessionmaker() as session:
         market = _market("real-cycle", condition_id="0x" + "11" * 32)
         session.add_all([market, StrategySettings(trading_enabled=True)])
         await session.flush()
+        await configure_wallet(
+            WalletConfigureRequest(private_key=PRIVATE_KEY),
+            session,
+            deriver=FakeCredentialDeriver(),
+        )
+        readiness = await _readiness(session, current_user=None, geoblock_client=FakeGeoblock(blocked=False))
+        assert readiness.bot_running is True
+        assert readiness.trading_enabled is True
+        assert readiness.env_trading_enabled is True
+        assert readiness.real_trading_confirmation_enabled is True
+        assert readiness.real_order_dry_run is False
+        assert readiness.redeem_enabled is True
+        assert readiness.redeem_dry_run is False
+        assert readiness.kill_switch_active is False
+        assert readiness.wallet_configured is True
+        assert readiness.api_credentials_configured is True
+        assert readiness.real_trading_ready is True
+        assert readiness.wallet_redeem_flow_status == "DIRECT_WALLET_REDEEM_SUPPORTED"
+
         context = _context(market, paper_trading_enabled=False, trading_enabled=True)
         decision = await StrategyEngine().evaluate(context)
+        assert decision.decision == "BUY_UP"
         persisted = await persist_strategy_decision(session, market=market, decision=decision)
         real_enabled_settings = get_settings().model_copy(
             update={
@@ -144,12 +182,17 @@ async def test_successful_real_order_reconciles_settles_officially_and_redeems(
             order=order,
             payload={"order_id": "real-order-1", "status": "filled", "size_matched": "1"},
         )
+        market.active = False
+        market.closed = True
+        market.end_ts = int(datetime.now(UTC).timestamp()) - 1
         settlement = await SettlementWorker(resolution_client=FakeResolutionClient("UP")).settle_market(
             session,
             market=market,
             winning_outcome="UP",
             official_resolution=OfficialResolution(True, "UP", raw_response={"mock": True}),
         )
+        ready_record = (await session.execute(select(RedeemRecord).where(RedeemRecord.market_id == market.id))).scalar_one()
+        assert ready_record.status == "READY_TO_REDEEM"
         redeem_result = await RedeemService(
             settings=get_settings().model_copy(
                 update={
@@ -165,13 +208,102 @@ async def test_successful_real_order_reconciles_settles_officially_and_redeems(
         await session.commit()
 
         refreshed_order = (await session.execute(select(Order).where(Order.id == order.id))).scalar_one()
+        final_record = (await session.execute(select(RedeemRecord).where(RedeemRecord.market_id == market.id))).scalar_one()
+    get_settings.cache_clear()
 
     assert refreshed_order.status == "SETTLEMENT_ELIGIBLE"
+    assert settlement.official_resolution_status == "official"
+    assert settlement.official_winning_outcome == "UP"
+    assert settlement.resolution_source == "polymarket_gamma"
     assert settlement.raw_resolution["official"] is True
     assert redeem_result.status == "REDEEM_CONFIRMED"
     assert redeem_result.tx_hash == "0xtx"
     assert redeem_result.balance_before == Decimal("10")
     assert redeem_result.balance_after == Decimal("11")
+    assert redeem_result.amount_redeemed == Decimal("1")
+    assert final_record.status == "REDEEM_CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_partial_fill_uses_only_matched_size_for_real_pnl_and_redeem_eligibility(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sessionmaker() as session:
+        market = _market("partial-fill", condition_id="0x" + "22" * 32)
+        session.add_all([market, StrategySettings(trading_enabled=True)])
+        await session.flush()
+        order = Order(
+            market_id=market.id,
+            mode="real",
+            token_id=market.up_token_id,
+            outcome="UP",
+            side="BUY",
+            order_type="FAK",
+            price=Decimal("0.50"),
+            size=Decimal("1"),
+            size_matched=Decimal("0.4"),
+            status="PARTIALLY_FILLED",
+            raw_response={"test": True},
+        )
+        session.add(order)
+        await session.flush()
+
+        settlement = await SettlementWorker(resolution_client=FakeResolutionClient("UP")).settle_market(
+            session,
+            market=market,
+            winning_outcome="UP",
+            official_resolution=OfficialResolution(True, "UP", raw_response={"mock": True}),
+        )
+        eligibility = await RedeemService(
+            settings=get_settings().model_copy(update={"redeem_enabled": True}),
+            adapter=FakeRedeemAdapter(),
+            geoblock_client=FakeGeoblock(blocked=False),
+        ).check_redeem_eligibility(session, market, settlement)
+
+    assert settlement.real_pnl == Decimal("0.20000000")
+    assert eligibility.eligible is True
+    assert eligibility.matched_winning_size == Decimal("0.40000000")
+
+
+@pytest.mark.asyncio
+async def test_unreconciled_real_order_does_not_create_real_pnl_or_redeem_eligibility(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with sessionmaker() as session:
+        market = _market("unreconciled", condition_id="0x" + "33" * 32)
+        session.add_all([market, StrategySettings(trading_enabled=True)])
+        await session.flush()
+        order = Order(
+            market_id=market.id,
+            mode="real",
+            token_id=market.up_token_id,
+            outcome="UP",
+            side="BUY",
+            order_type="FAK",
+            price=Decimal("0.50"),
+            size=Decimal("1"),
+            size_matched=Decimal("0"),
+            status="SUBMITTED",
+            raw_response={"test": True},
+        )
+        session.add(order)
+        await session.flush()
+
+        settlement = await SettlementWorker(resolution_client=FakeResolutionClient("UP")).settle_market(
+            session,
+            market=market,
+            winning_outcome="UP",
+            official_resolution=OfficialResolution(True, "UP", raw_response={"mock": True}),
+        )
+        eligibility = await RedeemService(
+            settings=get_settings().model_copy(update={"redeem_enabled": True}),
+            adapter=FakeRedeemAdapter(),
+            geoblock_client=FakeGeoblock(blocked=False),
+        ).check_redeem_eligibility(session, market, settlement)
+
+    assert settlement.real_pnl == Decimal("0E-8")
+    assert eligibility.eligible is False
+    assert "RECONCILED_WINNING_REAL_ORDER_MISSING" in eligibility.reasons
 
 
 @pytest.mark.asyncio
@@ -235,6 +367,42 @@ async def test_bot_stop_prevents_strategy_execution(sessionmaker: async_sessionm
 
 
 @pytest.mark.asyncio
+async def test_bot_stop_prevents_real_order_submission(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        await set_bot_running(session, False)
+        market = _market("stopped-order")
+        session.add(market)
+        await session.flush()
+        context = _context(market, trading_enabled=True)
+        decision = await StrategyEngine().evaluate(context)
+        persisted = await persist_strategy_decision(session, market=market, decision=decision)
+        sdk = FakeOrderSdk()
+
+        result = await ExecutionEngine(
+            sdk=_sdk(sdk),
+            dry_run=False,
+            settings=get_settings().model_copy(
+                update={
+                    "trading_enabled": True,
+                    "real_trading_confirmation_enabled": True,
+                    "real_order_dry_run": False,
+                }
+            ),
+        ).submit_real_order(
+            session,
+            market=market,
+            persisted_decision=persisted,
+            decision=decision,
+            context=context,
+            geoblock_status=GeoblockStatus(blocked=False),
+        )
+
+    assert result.status == "BLOCKED"
+    assert "BOT_STOPPED" in result.reasons
+    assert sdk.requests == []
+
+
+@pytest.mark.asyncio
 async def test_bot_stop_prevents_settlement_eligibility_transition(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async with sessionmaker() as session:
         await set_bot_running(session, False)
@@ -295,6 +463,15 @@ class FakeOrderSdk:
 
     async def get_order(self, order_id: str) -> dict:
         return {"order_id": order_id, "status": "filled", "size_matched": "1"}
+
+
+class FakeCredentialDeriver:
+    async def create_or_derive_api_credentials(self, **kwargs):
+        return {
+            "api_key": "api-key",
+            "api_secret": "api-secret",
+            "api_passphrase": "api-passphrase",
+        }
 
 
 class FakeResolutionClient:

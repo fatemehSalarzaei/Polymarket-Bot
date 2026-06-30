@@ -138,6 +138,29 @@ async def test_official_resolution_rejects_ambiguous_winner() -> None:
 
 
 @pytest.mark.asyncio
+async def test_official_resolution_rejects_two_outcome_prices_near_one() -> None:
+    resolution = await PolymarketResolutionClient(
+        FakeGammaClient(
+            {
+                "closed": True,
+                "markets": [
+                    {
+                        "conditionId": "condition-1",
+                        "closed": True,
+                        "umaResolutionStatus": "resolved",
+                        "outcomes": ["Up", "Down"],
+                        "outcomePrices": ["0.999", "0.999"],
+                    }
+                ],
+            }
+        )
+    ).get_official_resolution(_market())
+
+    assert resolution.official is False
+    assert resolution.reason == "OFFICIAL_WINNING_OUTCOME_NOT_AVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_official_resolution_handles_malformed_gamma_response() -> None:
     resolution = await PolymarketResolutionClient(FakeGammaClient({"closed": True, "markets": "bad"})).get_official_resolution(
         _market()

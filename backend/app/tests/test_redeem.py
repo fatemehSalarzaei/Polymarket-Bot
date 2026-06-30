@@ -24,6 +24,7 @@ from app.models.user import User
 from app.schemas.execution import GeoblockStatus
 from app.services.polymarket_redeem_adapter import RedeemAdapterResult, SafeDryRunRedeemAdapter
 from app.services.redeem_service import RedeemService
+from app.services.runtime_gate import set_bot_running
 from app.services.auth import hash_password
 from app.services.settlement_worker import SettlementWorker
 from app.tasks.redeem_tasks import redeem_resolved_winning_positions_job, redeem_resolved_winning_positions_task
@@ -254,6 +255,26 @@ async def test_missing_balance_after_keeps_amount_none_with_reason(sessionmaker:
 
 
 @pytest.mark.asyncio
+async def test_missing_balance_before_keeps_amount_none_with_reason(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        result = await RedeemService(
+            settings=_settings(redeem_dry_run=False, real_order_dry_run=False),
+            adapter=MissingBalanceBeforeRedeemAdapter(wallet_address="0x0000000000000000000000000000000000000001"),
+            geoblock_client=FakeGeoblockClient(blocked=False),
+        ).redeem_winning_position(session, market, settlement)
+        await session.commit()
+
+    assert result.status == "REDEEM_CONFIRMED"
+    assert result.amount_redeemed is None
+    assert result.record is not None
+    assert result.record.raw_response["amount_redeemed_unavailable_reason"] == "BALANCE_BEFORE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_reverted_redeem_transaction_does_not_store_amount(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async with sessionmaker() as session:
         market, settlement = await _seed_settlement(session)
@@ -285,6 +306,32 @@ async def test_non_dry_run_missing_collateral_token_blocks_redeem(sessionmaker: 
         eligibility = await _service(settings=settings).check_redeem_eligibility(session, market, settlement)
 
     assert "COLLATERAL_TOKEN_MISSING" in eligibility.reasons
+
+
+@pytest.mark.asyncio
+async def test_bot_stopped_blocks_redeem_eligibility(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        await set_bot_running(session, False)
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        eligibility = await _service().check_redeem_eligibility(session, market, settlement)
+
+    assert "BOT_STOPPED" in eligibility.reasons
+
+
+@pytest.mark.asyncio
+async def test_bot_stopped_blocks_redeem_task(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        await set_bot_running(session, False)
+        market, _settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+    result = await redeem_resolved_winning_positions_job(sessionmaker=sessionmaker, service=_service())
+
+    assert result == {"skipped": True, "reason": "BOT_STOPPED"}
 
 
 def test_redeem_api_endpoints_return_statuses(
@@ -426,6 +473,22 @@ class MissingBalanceAfterRedeemAdapter(SafeDryRunRedeemAdapter):
             self._called = True
             return Decimal("10")
         return None
+
+
+class MissingBalanceBeforeRedeemAdapter(SafeDryRunRedeemAdapter):
+    async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
+        return RedeemAdapterResult(
+            submitted=True,
+            confirmed=True,
+            tx_hash="0xtx",
+            raw_response={"condition_id": condition_id, "index_sets": index_sets},
+        )
+
+    async def get_pusd_balance(self, wallet_address: str) -> Decimal | None:
+        if not hasattr(self, "_called"):
+            self._called = True
+            return None
+        return Decimal("12.5")
 
 
 class RevertedRedeemAdapter(SafeDryRunRedeemAdapter):
