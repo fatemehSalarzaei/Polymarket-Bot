@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
+import asyncio
 
 from app.core.config import Settings, get_settings
 from app.services.wallet_credentials import TradingCredentialBundle, get_active_wallet_credentials_for_trading
@@ -69,13 +70,141 @@ class BackendOnlyPolymarketRedeemAdapter:
         )
 
     async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
-        raise NotImplementedError(
-            "REAL_REDEEM_NOT_IMPLEMENTED: non-dry-run CTF redemption is intentionally blocked until "
-            "the exact Polymarket redeemPositions transaction shape is verified and implemented."
-        )
+        return await asyncio.to_thread(self._redeem_sync, condition_id, index_sets)
 
     async def get_pusd_balance(self, wallet_address: str) -> Decimal | None:
-        return None
+        return await asyncio.to_thread(self._get_erc20_balance_sync, wallet_address)
+
+    def _redeem_sync(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
+        if not self._settings.polygon_rpc_url:
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={},
+                error_message="POLYGON_RPC_URL_MISSING",
+            )
+        if self._bundle is None:
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={},
+                error_message="WALLET_CONFIG_MISSING",
+            )
+        try:
+            from eth_account import Account
+            from web3 import Web3
+        except ImportError as exc:
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={},
+                error_message=f"WEB3_IMPORT_FAILED:{type(exc).__name__}",
+            )
+
+        account = Account.from_key(self._bundle.private_key)
+        from_address = Web3.to_checksum_address(account.address)
+        funder_address = self._bundle.funder_address
+        if funder_address and funder_address.lower() != from_address.lower():
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={"wallet_address": from_address, "funder_address": funder_address},
+                error_message="PROXY_WALLET_REDEEM_REQUIRES_RELAYER",
+            )
+
+        web3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
+        ctf = web3.eth.contract(
+            address=Web3.to_checksum_address(self._settings.conditional_tokens_contract_address),
+            abi=_CONDITIONAL_TOKENS_ABI,
+        )
+        collateral = Web3.to_checksum_address(self._settings.pusd_contract_address)
+        tx = ctf.functions.redeemPositions(
+            collateral,
+            bytes.fromhex(self._settings.ctf_parent_collection_id.removeprefix("0x")),
+            bytes.fromhex(condition_id.removeprefix("0x")),
+            index_sets,
+        ).build_transaction(
+            {
+                "from": from_address,
+                "chainId": self._bundle.chain_id,
+                "nonce": web3.eth.get_transaction_count(from_address),
+                "gasPrice": web3.eth.gas_price,
+            }
+        )
+        tx.setdefault("gas", web3.eth.estimate_gas(tx))
+        signed = account.sign_transaction(tx)
+        tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+        receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+        confirmed = int(receipt.get("status", 0)) == 1
+        return RedeemAdapterResult(
+            submitted=True,
+            confirmed=confirmed,
+            tx_hash=web3.to_hex(tx_hash),
+            raw_response={
+                "transaction_hash": web3.to_hex(tx_hash),
+                "block_number": receipt.get("blockNumber"),
+                "status": receipt.get("status"),
+                "condition_id": condition_id,
+                "index_sets": index_sets,
+                "ctf_contract_address": self._settings.conditional_tokens_contract_address,
+                "collateral_token": self._settings.pusd_contract_address,
+            },
+            error_message=None if confirmed else "REDEEM_TX_REVERTED",
+        )
+
+    def _get_erc20_balance_sync(self, wallet_address: str) -> Decimal | None:
+        if not self._settings.polygon_rpc_url:
+            return None
+        try:
+            from web3 import Web3
+        except ImportError:
+            return None
+        web3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
+        token = web3.eth.contract(
+            address=Web3.to_checksum_address(self._settings.pusd_contract_address),
+            abi=_ERC20_ABI,
+        )
+        raw_balance = token.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call()
+        try:
+            decimals = token.functions.decimals().call()
+        except Exception:
+            decimals = 6
+        return Decimal(raw_balance) / (Decimal(10) ** Decimal(decimals))
+
+
+_CONDITIONAL_TOKENS_ABI = [
+    {
+        "constant": False,
+        "inputs": [
+            {"name": "collateralToken", "type": "address"},
+            {"name": "parentCollectionId", "type": "bytes32"},
+            {"name": "conditionId", "type": "bytes32"},
+            {"name": "indexSets", "type": "uint256[]"},
+        ],
+        "name": "redeemPositions",
+        "outputs": [],
+        "payable": False,
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
+_ERC20_ABI = [
+    {
+        "constant": True,
+        "inputs": [{"name": "account", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "payable": False,
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{"name": "", "type": "uint8"}],
+        "payable": False,
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
 
 
 def build_redeem_adapter(settings: Settings | None = None) -> PolymarketRedeemAdapter:

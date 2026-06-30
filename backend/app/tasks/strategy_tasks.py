@@ -23,6 +23,7 @@ from app.services.geoblock import GeoblockClient
 from app.services.paper_trading import PaperTradingEngine
 from app.services.polymarket_sdk import BackendOnlyClobSdkWrapper, build_clob_sdk_from_stored_wallet
 from app.services.risk_manager import RiskManager
+from app.services.runtime_gate import BOT_STOPPED_RESULT, is_bot_running
 from app.services.settings import get_or_create_strategy_settings
 from app.services.strategy_context_builder import StrategyContextBuilder
 from app.services.strategy_engine import StrategyEngine
@@ -52,6 +53,8 @@ async def evaluate_active_users_job(
 ) -> dict[str, Any]:
     maker = sessionmaker or get_sessionmaker()
     async with maker() as session:
+        if not await is_bot_running(session):
+            return dict(BOT_STOPPED_RESULT)
         result = await session.execute(select(User).where(User.is_active.is_(True)))
         users = list(result.scalars().all())
         processed: list[dict[str, Any]] = []
@@ -72,6 +75,8 @@ async def evaluate_current_strategy_job(
 ) -> dict[str, Any]:
     maker = sessionmaker or get_sessionmaker()
     async with maker() as session:
+        if not await is_bot_running(session):
+            return dict(BOT_STOPPED_RESULT)
         build = await (builder or StrategyContextBuilder()).build(session, user_id=user_id)
         if not build.ok:
             logger.warning("strategy_evaluation_skipped", extra={"missing": build.missing})
@@ -100,7 +105,11 @@ async def evaluate_current_strategy_job(
         await publish_dashboard_event("strategy_decision", strategy_event)
 
         order = None
-        if risk.passed and await _has_no_paper_order(session, market_id=build.market.id, user_id=user_id):
+        if (
+            build.context.paper_trading_enabled
+            and risk.passed
+            and await _has_no_paper_order(session, market_id=build.market.id, user_id=user_id)
+        ):
             order = await PaperTradingEngine().create_order(
                 session,
                 market=build.market,

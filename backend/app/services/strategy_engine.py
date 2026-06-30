@@ -14,9 +14,6 @@ class StrategyEngine:
         if context.market_data_age_seconds > Decimal(str(context.max_data_age_seconds)):
             return _no_trade(context, "MARKET_DATA_STALE", raw_context)
 
-        if not context.paper_trading_enabled:
-            return _no_trade(context, "PAPER_TRADING_DISABLED", raw_context)
-
         if context.kill_switch_active:
             return _no_trade(context, "KILL_SWITCH_ACTIVE", raw_context)
 

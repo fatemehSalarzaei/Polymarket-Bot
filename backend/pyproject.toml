@@ -20,8 +20,9 @@ dependencies = [
   "celery[redis]>=5.4.0",
   "cryptography>=42.0.0",
   "eth-account>=0.13.0",
+  "web3>=6.20.0",
   "pycryptodome>=3.20.0",
-  "py-clob-client-v2>=0.1.0",
+  "py-clob-client>=0.23.0",
 ]
 
 [project.scripts]

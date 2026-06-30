@@ -8,6 +8,7 @@ from app.models.order import Order
 from app.models.strategy import StrategyDecision
 from app.schemas.execution import GeoblockStatus, PlaceOrderRequest, RealOrderResult
 from app.schemas.strategy import StrategyContext, StrategyDecisionDTO
+from app.services.order_lifecycle import ORDER_STATUS_BLOCKED, ORDER_STATUS_DRY_RUN, ORDER_STATUS_SUBMITTED
 from app.services.polymarket_sdk import BackendOnlyClobSdkWrapper
 from app.services.risk_manager import RiskManager
 
@@ -52,7 +53,7 @@ class ExecutionEngine:
                 persisted_decision=persisted_decision,
                 decision=decision,
                 context=context,
-                status="BLOCKED",
+                status=ORDER_STATUS_BLOCKED,
                 raw_response={"risk_reasons": risk.reasons, "geoblock": geoblock_status.model_dump(mode="json")},
                 error_message=",".join(risk.reasons),
                 user_id=user_id,
@@ -62,7 +63,7 @@ class ExecutionEngine:
             return RealOrderResult(
                 submitted=False,
                 dry_run=self._dry_run,
-                status="BLOCKED",
+                status=ORDER_STATUS_BLOCKED,
                 order_id=order.id,
                 reasons=risk.reasons,
                 raw_response=order.raw_response,
@@ -76,7 +77,7 @@ class ExecutionEngine:
                 persisted_decision=persisted_decision,
                 decision=decision,
                 context=context,
-                status="DRY_RUN",
+                status=ORDER_STATUS_DRY_RUN,
                 raw_response={"dry_run": True, "request": request.model_dump(mode="json")},
                 user_id=user_id,
                 wallet_credential_id=wallet_credential_id,
@@ -85,7 +86,7 @@ class ExecutionEngine:
             return RealOrderResult(
                 submitted=False,
                 dry_run=True,
-                status="DRY_RUN",
+                status=ORDER_STATUS_DRY_RUN,
                 order_id=order.id,
                 reasons=["DRY_RUN"],
                 raw_response=order.raw_response,
@@ -98,7 +99,7 @@ class ExecutionEngine:
             persisted_decision=persisted_decision,
             decision=decision,
             context=context,
-            status=result.status,
+            status=result.status if result.status else ORDER_STATUS_SUBMITTED,
             external_order_id=result.external_order_id,
             raw_response=result.raw_response,
             error_message=result.error_message,

@@ -10,6 +10,7 @@ from app.db.session import get_sessionmaker
 from app.services.dashboard_broadcaster import DashboardBroadcaster, dashboard_broadcaster
 from app.services.dashboard_event_bus import publish_dashboard_event
 from app.services.pnl import get_pnl_summary
+from app.services.runtime_gate import BOT_STOPPED_RESULT, is_bot_running
 from app.services.settlement_worker import SettlementWorker
 
 
@@ -25,6 +26,8 @@ async def settle_finished_markets_job(
 ) -> dict[str, Any]:
     maker = sessionmaker or get_sessionmaker()
     async with maker() as session:
+        if not await is_bot_running(session):
+            return dict(BOT_STOPPED_RESULT)
         settlements = await SettlementWorker().settle_finished_markets(session)
         await session.commit()
         if settlements:

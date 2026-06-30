@@ -15,6 +15,7 @@ from app.models.settlement import Settlement
 from app.schemas.execution import GeoblockStatus
 from app.schemas.redeem import RedeemAttemptResult, RedeemEligibilityResponse, RedeemRecordResponse
 from app.services.geoblock import GeoblockClient
+from app.services.order_lifecycle import is_real_order_reconciled_with_match
 from app.services.polymarket_redeem_adapter import PolymarketRedeemAdapter, build_redeem_adapter_from_stored_wallet
 from app.services.settings import get_or_create_strategy_settings
 
@@ -77,11 +78,12 @@ class RedeemService:
         winning_orders = [
             order
             for order in real_orders
-            if winning_outcome is not None and order.outcome == winning_outcome and order.size_matched > 0
+            if winning_outcome is not None and order.outcome == winning_outcome and is_real_order_reconciled_with_match(order)
         ]
         matched_size = sum((order.size_matched for order in winning_orders), Decimal("0"))
         if real_orders and not winning_orders:
             reasons.append("WINNING_REAL_ORDER_MISSING")
+            reasons.append("RECONCILED_WINNING_REAL_ORDER_MISSING")
 
         strategy_settings = await get_or_create_strategy_settings(session, user_id=user_id)
         if not (strategy_settings.trading_enabled or self._settings.redeem_enabled):

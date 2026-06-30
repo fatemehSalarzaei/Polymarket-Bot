@@ -14,6 +14,8 @@ async def get_or_create_strategy_settings(session: AsyncSession, *, user_id: int
     statement = select(StrategySettings)
     if user_id is not None:
         statement = statement.where(StrategySettings.user_id == user_id)
+    else:
+        statement = statement.where(StrategySettings.user_id.is_(None))
     result = await session.execute(statement.order_by(StrategySettings.id).limit(1))
     settings = result.scalar_one_or_none()
     if settings is not None:
@@ -82,6 +84,7 @@ def serialize_strategy_settings(settings: StrategySettings) -> dict[str, Any]:
         "id",
         "paper_trading_enabled",
         "trading_enabled",
+        "bot_running",
         "kill_switch_active",
         "final_window_seconds",
         "min_edge",

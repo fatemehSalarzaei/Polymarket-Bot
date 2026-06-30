@@ -4,6 +4,7 @@ import asyncio
 import importlib.metadata
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -68,7 +69,7 @@ class PolymarketSdkCredentialDeriver:
         host = str(settings.polymarket_clob_host).rstrip("/")
         sdk_version = _sdk_version()
         try:
-            from py_clob_client_v2 import ClobClient  # type: ignore
+            ClobClient = _load_clob_client_class()
         except ImportError as exc:
             _log_derivation_failure(
                 exc,
@@ -80,7 +81,7 @@ class PolymarketSdkCredentialDeriver:
             )
             raise AppError(
                 "POLYMARKET_SDK_MISSING",
-                technical_detail="py_clob_client_v2 is not installed or cannot be imported.",
+                technical_detail="py_clob_client is not installed or cannot be imported.",
                 status_code=503,
             ) from exc
 
@@ -467,16 +468,35 @@ def _read_credential_field(creds: Any, *names: str) -> str:
 
 def _derive_credentials_sync(clob_client_class, host: str, chain_id: int, private_key: str) -> Any:
     client = clob_client_class(host=host, chain_id=chain_id, key=private_key)
+    last_exc: Exception | None = None
+    for method_name in ("create_or_derive_api_creds", "create_or_derive_api_key", "derive_api_key", "derive_api_creds", "get_api_keys"):
+        if not hasattr(client, method_name):
+            continue
+        method = getattr(client, method_name)
+        if not callable(method):
+            continue
+        try:
+            return method()
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if last_exc is not None:
+        raise last_exc
+    raise AttributeError("ClobClient does not expose an API credential derivation method")
+
+
+def _load_clob_client_class():
+    legacy_module = sys.modules.get("py_clob_client_v2")
+    if legacy_module is not None and hasattr(legacy_module, "ClobClient"):
+        return legacy_module.ClobClient
     try:
-        return client.create_or_derive_api_key()
-    except Exception:
-        for method_name in ("derive_api_key", "derive_api_creds", "get_api_keys"):
-            if not hasattr(client, method_name):
-                continue
-            fallback = getattr(client, method_name)
-            if callable(fallback):
-                return fallback()
-        raise
+        from py_clob_client.client import ClobClient  # type: ignore
+
+        return ClobClient
+    except ImportError:
+        from py_clob_client_v2 import ClobClient  # type: ignore
+
+        return ClobClient
 
 
 def _map_derivation_exception(exc: Exception) -> AppError:
@@ -546,7 +566,7 @@ def _log_derivation_failure(
 
 
 def _sdk_version() -> str | None:
-    for package in ("py-clob-client-v2", "py_clob_client_v2"):
+    for package in ("py-clob-client", "py_clob_client"):
         try:
             return importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:

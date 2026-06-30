@@ -15,6 +15,7 @@ class StrategySettings(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     paper_trading_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     trading_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    bot_running: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     kill_switch_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     final_window_seconds: Mapped[int] = mapped_column(default=180, nullable=False)
     min_edge: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("0.05"), nullable=False)

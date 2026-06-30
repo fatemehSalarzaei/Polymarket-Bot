@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     chainlink_start_tick_tolerance_seconds: int = 30
     polymarket_user_wss: str = "wss://clob.polymarket.com/ws/user"
     polymarket_chain_id: int = 137
+    polygon_rpc_url: str = ""
 
     private_key: str = ""
     polymarket_api_key: str = ""
@@ -56,6 +57,7 @@ class Settings(BaseSettings):
     max_data_age_seconds: int = 10
     default_order_type: str = Field(default="FAK", pattern="^(GTC|FOK|GTD|FAK)$")
     pusd_contract_address: str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+    conditional_tokens_contract_address: str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
     ctf_parent_collection_id: str = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 

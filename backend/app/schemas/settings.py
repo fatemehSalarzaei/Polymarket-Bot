@@ -10,6 +10,7 @@ class StrategySettingsResponse(BaseModel):
     id: int
     paper_trading_enabled: bool
     trading_enabled: bool
+    bot_running: bool
     kill_switch_active: bool
     final_window_seconds: int
     min_edge: Decimal
@@ -25,6 +26,7 @@ class StrategySettingsResponse(BaseModel):
 class StrategySettingsPatch(BaseModel):
     paper_trading_enabled: bool | None = None
     trading_enabled: bool | None = None
+    bot_running: bool | None = None
     kill_switch_active: bool | None = None
     final_window_seconds: int | None = Field(default=None, ge=1, le=900)
     min_edge: Decimal | None = Field(default=None, ge=0, le=1)

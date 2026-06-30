@@ -10,12 +10,18 @@ from app.models.order import Order
 from app.models.redeem import RedeemRecord
 from app.models.settlement import Settlement
 from app.models.tick import ChainlinkTick
+from app.services.order_lifecycle import is_real_order_reconciled_with_match
+from app.services.order_lifecycle import ORDER_STATUS_SETTLEMENT_ELIGIBLE
+from app.services.polymarket_resolution import OfficialResolution, PolymarketResolutionClient
 
 
 logger = logging.getLogger(__name__)
 
 
 class SettlementWorker:
+    def __init__(self, *, resolution_client: PolymarketResolutionClient | None = None) -> None:
+        self._resolution_client = resolution_client or PolymarketResolutionClient()
+
     async def settle_finished_markets(self, session: AsyncSession, *, now: datetime | None = None) -> list[Settlement]:
         current_time = now or datetime.now(UTC)
         current_ts = int(current_time.timestamp())
@@ -37,7 +43,9 @@ class SettlementWorker:
                 )
                 continue
 
-            winning_outcome = "UP" if end_tick.value >= start_tick.value else "DOWN"
+            internal_winning_outcome = "UP" if end_tick.value >= start_tick.value else "DOWN"
+            official_resolution = await self._official_resolution(market)
+            winning_outcome = official_resolution.winning_outcome or internal_winning_outcome
             settlement = await self.settle_market(
                 session,
                 market=market,
@@ -45,6 +53,8 @@ class SettlementWorker:
                 btc_start_price=start_tick.value,
                 btc_end_price=end_tick.value,
                 resolved_at=current_time,
+                official_resolution=official_resolution,
+                internal_winning_outcome=internal_winning_outcome,
             )
             settlements.append(settlement)
 
@@ -60,14 +70,21 @@ class SettlementWorker:
         btc_start_price: Decimal | None = None,
         btc_end_price: Decimal | None = None,
         resolved_at: datetime | None = None,
+        official_resolution: OfficialResolution | None = None,
+        internal_winning_outcome: str | None = None,
     ) -> Settlement:
         statement = select(Order).where(Order.market_id == market.id)
         if user_id is not None:
             statement = statement.where(Order.user_id == user_id)
         result = await session.execute(statement)
         orders = list(result.scalars().all())
+        for order in orders:
+            if is_real_order_reconciled_with_match(order):
+                order.status = ORDER_STATUS_SETTLEMENT_ELIGIBLE
+                session.add(order)
         paper_pnl = _calculate_pnl(orders, winning_outcome, mode="paper")
         real_pnl = _calculate_pnl(orders, winning_outcome, mode="real")
+        official = bool(official_resolution and official_resolution.official)
         settlement = Settlement(
             user_id=user_id,
             market_id=market.id,
@@ -79,11 +96,14 @@ class SettlementWorker:
             real_pnl=real_pnl,
             raw_resolution={
                 "winning_outcome": winning_outcome,
-                "official": False,
-                "resolved_by_polymarket": False,
-                "resolution_source": "internal_chainlink_calculation",
-                "resolution_checked_at": None,
+                "internal_winning_outcome": internal_winning_outcome or winning_outcome,
+                "official": official,
+                "resolved_by_polymarket": official,
+                "resolution_source": "polymarket_gamma" if official else "internal_chainlink_calculation",
+                "resolution_checked_at": datetime.now(UTC).isoformat(),
                 "condition_id": market.condition_id,
+                "official_resolution": official_resolution.raw_response if official_resolution else None,
+                "official_resolution_reason": official_resolution.reason if official_resolution else "NOT_CHECKED",
             },
         )
         session.add(settlement)
@@ -92,11 +112,23 @@ class SettlementWorker:
         await _create_redeem_record_if_ready(session, market=market, settlement=settlement, orders=orders, user_id=user_id)
         return settlement
 
+    async def _official_resolution(self, market: Market) -> OfficialResolution:
+        try:
+            return await self._resolution_client.get_official_resolution(market)
+        except Exception as exc:
+            logger.warning(
+                "official_resolution_lookup_failed",
+                extra={"market_id": market.id, "exception_class": type(exc).__name__},
+            )
+            return OfficialResolution(False, reason="OFFICIAL_RESOLUTION_LOOKUP_FAILED")
+
 
 def _calculate_pnl(orders: list[Order], winning_outcome: str, *, mode: str) -> Decimal:
     pnl = Decimal("0")
     for order in orders:
         if order.mode != mode:
+            continue
+        if mode == "real" and not is_real_order_reconciled_with_match(order):
             continue
         cost = order.price * order.size_matched
         payout = order.size_matched if order.outcome == winning_outcome else Decimal("0")
@@ -115,7 +147,7 @@ async def _create_redeem_record_if_ready(
     winning_real_orders = [
         order
         for order in orders
-        if order.mode == "real" and order.outcome == settlement.winning_outcome and order.size_matched > 0
+        if order.outcome == settlement.winning_outcome and is_real_order_reconciled_with_match(order)
     ]
     if not winning_real_orders or not market.condition_id:
         return
