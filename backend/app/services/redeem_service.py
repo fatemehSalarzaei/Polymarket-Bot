@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from sqlalchemy import desc, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -211,12 +212,20 @@ class RedeemService:
             record.balance_after = balance_after
             record.amount_redeemed = _amount_redeemed_from_result(result, balance_before, balance_after)
             record.raw_response = dict(result.raw_response)
+            record.raw_response["collateral_token_address"] = self._settings.resolved_collateral_token_address
+            record.raw_response["balance_before"] = str(balance_before) if balance_before is not None else None
+            record.raw_response["balance_after"] = str(balance_after) if balance_after is not None else None
             record.error_message = result.error_message
             if result.amount_redeemed is None and record.amount_redeemed is None:
                 record.raw_response["amount_redeemed_unavailable"] = True
+                if result.confirmed or result.submitted:
+                    record.raw_response["amount_redeemed_unavailable_reason"] = _amount_redeemed_unavailable_reason(
+                        balance_before,
+                        balance_after,
+                    )
             if result.confirmed:
                 record.status = "REDEEM_CONFIRMED"
-            elif result.submitted:
+            elif result.submitted and not result.error_message:
                 record.status = "REDEEM_SUBMITTED"
             else:
                 record.status = "REDEEM_FAILED"
@@ -247,7 +256,7 @@ class RedeemService:
 
 
 async def list_redeem_records(session: AsyncSession, *, limit: int = 100, user_id: int | None = None) -> list[RedeemRecord]:
-    statement = select(RedeemRecord)
+    statement = select(RedeemRecord).options(selectinload(RedeemRecord.settlement))
     if user_id is not None:
         statement = statement.where(RedeemRecord.user_id == user_id)
     result = await session.execute(statement.order_by(desc(RedeemRecord.created_at)).limit(limit))
@@ -255,7 +264,11 @@ async def list_redeem_records(session: AsyncSession, *, limit: int = 100, user_i
 
 
 async def get_redeem_record_for_market(session: AsyncSession, *, market_id: int, user_id: int | None = None) -> RedeemRecord | None:
-    statement = select(RedeemRecord).where(RedeemRecord.market_id == market_id, RedeemRecord.mode == "real")
+    statement = (
+        select(RedeemRecord)
+        .options(selectinload(RedeemRecord.settlement))
+        .where(RedeemRecord.market_id == market_id, RedeemRecord.mode == "real")
+    )
     if user_id is not None:
         statement = statement.where(RedeemRecord.user_id == user_id)
     result = await session.execute(
@@ -338,12 +351,20 @@ def _amount_redeemed_from_result(
 ) -> Decimal | None:
     if result.amount_redeemed is not None:
         return result.amount_redeemed
-    if not (result.confirmed or result.submitted):
+    if result.error_message or not (result.confirmed or result.submitted):
         return None
     if balance_before is None or balance_after is None:
         return None
     delta = balance_after - balance_before
     return delta if delta >= 0 else None
+
+
+def _amount_redeemed_unavailable_reason(balance_before: Decimal | None, balance_after: Decimal | None) -> str:
+    if balance_before is None:
+        return "BALANCE_BEFORE_UNAVAILABLE"
+    if balance_after is None:
+        return "BALANCE_AFTER_UNAVAILABLE"
+    return "AMOUNT_REDEEMED_UNAVAILABLE"
 
 
 def _attempt_result_from_record(record: RedeemRecord, *, reasons: list[str] | None = None) -> RedeemAttemptResult:

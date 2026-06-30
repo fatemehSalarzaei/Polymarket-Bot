@@ -30,7 +30,7 @@ async def get_redeems(
     current_user: User | None = Depends(get_current_user),
 ) -> list[RedeemRecordResponse]:
     records = await list_redeem_records(session, limit=limit, user_id=user_id_or_none(current_user))
-    return [RedeemRecordResponse.model_validate(record) for record in records]
+    return [_record_response(record) for record in records]
 
 
 @router.get("/redeems/{market_id}", response_model=RedeemStatusResponse)
@@ -51,6 +51,10 @@ async def get_redeem_by_market(
         winning_outcome=eligibility.winning_outcome,
         status=eligibility.status,
         real_winning_order_exists=eligibility.real_winning_order_exists,
+        settlement_resolution_status=settlement.official_resolution_status if settlement is not None else None,
+        settlement_resolution_source=settlement.resolution_source if settlement is not None else None,
+        official_winning_outcome=settlement.official_winning_outcome if settlement is not None else None,
+        internal_winning_outcome=settlement.internal_winning_outcome if settlement is not None else None,
         reasons=eligibility.reasons,
     )
 
@@ -83,6 +87,7 @@ async def _market_and_settlement(session: AsyncSession, market_id: int) -> tuple
 
 
 def _status_from_record(record) -> RedeemStatusResponse:
+    settlement = record.settlement
     return RedeemStatusResponse(
         market_id=record.market_id,
         condition_id=record.condition_id,
@@ -96,5 +101,24 @@ def _status_from_record(record) -> RedeemStatusResponse:
         created_at=record.created_at,
         updated_at=record.updated_at,
         real_winning_order_exists=record.status not in {"NOT_ELIGIBLE", "SKIPPED_PAPER_ONLY"},
+        settlement_resolution_status=settlement.official_resolution_status if settlement is not None else None,
+        settlement_resolution_source=settlement.resolution_source if settlement is not None else None,
+        official_winning_outcome=settlement.official_winning_outcome if settlement is not None else None,
+        internal_winning_outcome=settlement.internal_winning_outcome if settlement is not None else None,
         reasons=[record.error_message] if record.error_message else [],
+    )
+
+
+def _record_response(record) -> RedeemRecordResponse:
+    response = RedeemRecordResponse.model_validate(record)
+    settlement = record.settlement
+    if settlement is None:
+        return response
+    return response.model_copy(
+        update={
+            "settlement_resolution_status": settlement.official_resolution_status,
+            "settlement_resolution_source": settlement.resolution_source,
+            "official_winning_outcome": settlement.official_winning_outcome,
+            "internal_winning_outcome": settlement.internal_winning_outcome,
+        }
     )

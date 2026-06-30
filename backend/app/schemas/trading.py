@@ -26,6 +26,7 @@ class TradingReadinessResponse(BaseModel):
     collateral_token_configured: bool
     conditional_tokens_contract_configured: bool
     wallet_redeem_flow_supported: bool
+    wallet_redeem_flow_status: str
     wallet_redeem_flow_blocking_reason: str | None = None
     official_resolution_client_available: bool
     trading_ready: bool

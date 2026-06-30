@@ -33,6 +33,10 @@ class RedeemRecordResponse(BaseModel):
     balance_after: Decimal | None
     error_message: str | None
     raw_response: dict[str, Any]
+    settlement_resolution_status: str | None = None
+    settlement_resolution_source: str | None = None
+    official_winning_outcome: str | None = None
+    internal_winning_outcome: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -64,4 +68,8 @@ class RedeemStatusResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     real_winning_order_exists: bool = False
+    settlement_resolution_status: str | None = None
+    settlement_resolution_source: str | None = None
+    official_winning_outcome: str | None = None
+    internal_winning_outcome: str | None = None
     reasons: list[str] = Field(default_factory=list)

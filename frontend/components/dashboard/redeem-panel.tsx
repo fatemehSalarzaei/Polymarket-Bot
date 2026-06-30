@@ -18,7 +18,7 @@ export function RedeemPanel({ redeems }: { redeems: RedeemRecord[] }) {
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold text-ink">Redeem / Wallet</h3>
-          <p className="text-sm text-muted">Resolved real winning positions return to pUSD only after redeem.</p>
+          <p className="text-sm text-muted">Resolved real winning positions return to wallet collateral only after redeem.</p>
         </div>
       </div>
 

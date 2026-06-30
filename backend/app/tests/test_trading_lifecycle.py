@@ -235,6 +235,42 @@ async def test_bot_stop_prevents_strategy_execution(sessionmaker: async_sessionm
 
 
 @pytest.mark.asyncio
+async def test_bot_stop_prevents_settlement_eligibility_transition(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        await set_bot_running(session, False)
+        market = _market("stopped-settlement", condition_id="0x" + "44" * 32)
+        session.add(market)
+        await session.flush()
+        order = Order(
+            market_id=market.id,
+            mode="real",
+            token_id=market.up_token_id,
+            outcome="UP",
+            side="BUY",
+            order_type="FAK",
+            price=Decimal("0.50"),
+            size=Decimal("1"),
+            size_matched=Decimal("1"),
+            status="FILLED",
+            raw_response={"test": True},
+        )
+        session.add(order)
+        await session.flush()
+
+        await SettlementWorker(resolution_client=FakeResolutionClient("UP")).settle_market(
+            session,
+            market=market,
+            winning_outcome="UP",
+            official_resolution=OfficialResolution(True, "UP", raw_response={"mock": True}),
+        )
+        records = list((await session.execute(select(RedeemRecord))).scalars().all())
+        refreshed_order = (await session.execute(select(Order).where(Order.id == order.id))).scalar_one()
+
+    assert refreshed_order.status == "FILLED"
+    assert records == []
+
+
+@pytest.mark.asyncio
 async def test_real_trading_decision_works_when_paper_trading_disabled() -> None:
     decision = await StrategyEngine().evaluate(
         _context(_market("paper-disabled"), paper_trading_enabled=False, trading_enabled=True)

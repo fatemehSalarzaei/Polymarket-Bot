@@ -212,6 +212,7 @@ async def _readiness(
         collateral_token_configured=bool(config.resolved_collateral_token_address),
         conditional_tokens_contract_configured=bool(config.conditional_tokens_contract_address),
         wallet_redeem_flow_supported=wallet_redeem_flow_supported,
+        wallet_redeem_flow_status=wallet.redeem_flow_status,
         wallet_redeem_flow_blocking_reason=wallet_redeem_flow_blocking_reason,
         official_resolution_client_available=bool(config.polymarket_gamma_host),
         trading_ready=not current_mode_reasons,

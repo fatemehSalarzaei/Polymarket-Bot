@@ -28,7 +28,15 @@ class PolymarketResolutionClient:
         self._gamma_client = gamma_client or PolymarketGammaClient(str(settings.polymarket_gamma_host))
 
     async def get_official_resolution(self, market: Market) -> OfficialResolution:
-        payload = await self._gamma_client.get_event_by_slug(market.event_slug)
+        try:
+            payload = await self._gamma_client.get_event_by_slug(market.event_slug)
+        except Exception as exc:
+            return OfficialResolution(
+                False,
+                raw_response={"error": type(exc).__name__, "checked_at": datetime.now(UTC).isoformat()},
+                reason="OFFICIAL_RESOLUTION_LOOKUP_FAILED",
+                status="official_lookup_failed",
+            )
         market_payload = _select_market_payload(payload, market)
         if market_payload is None:
             return OfficialResolution(

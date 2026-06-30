@@ -150,6 +150,8 @@ def test_real_mode_can_enable_when_all_real_safety_checks_pass(
     assert body["trading_ready"] is True
     assert body["real_trading_ready"] is True
     assert body["real_trading_available"] is True
+    assert body["wallet_redeem_flow_status"] == "DIRECT_WALLET_REDEEM_SUPPORTED"
+    assert body["wallet_redeem_flow_supported"] is True
     assert body["blocking_reasons"] == []
 
     enable_response = client.post("/api/trading/enable", json={"confirm_phrase": "ENABLE REAL TRADING"})
@@ -209,6 +211,7 @@ def test_proxy_wallet_blocks_real_redeem_readiness(
     assert response.status_code == 200
     body = response.json()
     assert body["wallet_redeem_flow_supported"] is False
+    assert body["wallet_redeem_flow_status"] == "PROXY_WALLET_REDEEM_REQUIRES_RELAYER"
     assert body["wallet_redeem_flow_blocking_reason"] == "PROXY_WALLET_REDEEM_REQUIRES_RELAYER"
     assert "PROXY_WALLET_REDEEM_REQUIRES_RELAYER" in body["real_trading_blocking_reasons"]
 

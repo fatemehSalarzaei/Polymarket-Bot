@@ -13,6 +13,7 @@ from app.models.tick import ChainlinkTick
 from app.services.order_lifecycle import is_real_order_reconciled_with_match
 from app.services.order_lifecycle import ORDER_STATUS_SETTLEMENT_ELIGIBLE
 from app.services.polymarket_resolution import OfficialResolution, PolymarketResolutionClient
+from app.services.runtime_gate import is_bot_running
 
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,9 @@ class SettlementWorker:
             statement = statement.where(Order.user_id == user_id)
         result = await session.execute(statement)
         orders = list(result.scalars().all())
+        bot_running = await is_bot_running(session)
         for order in orders:
-            if is_real_order_reconciled_with_match(order):
+            if bot_running and is_real_order_reconciled_with_match(order):
                 order.status = ORDER_STATUS_SETTLEMENT_ELIGIBLE
                 session.add(order)
         paper_pnl = _calculate_pnl(orders, winning_outcome, mode="paper")
@@ -124,7 +126,8 @@ class SettlementWorker:
         session.add(settlement)
         await session.flush()
         await session.refresh(settlement)
-        await _create_redeem_record_if_ready(session, market=market, settlement=settlement, orders=orders, user_id=user_id)
+        if bot_running:
+            await _create_redeem_record_if_ready(session, market=market, settlement=settlement, orders=orders, user_id=user_id)
         return settlement
 
     async def _official_resolution(self, market: Market) -> OfficialResolution:

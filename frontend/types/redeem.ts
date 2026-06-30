@@ -22,6 +22,10 @@ export interface RedeemRecord {
   balance_after: string | null;
   error_message: string | null;
   raw_response: Record<string, unknown>;
+  settlement_resolution_status: string | null;
+  settlement_resolution_source: string | null;
+  official_winning_outcome: string | null;
+  internal_winning_outcome: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +43,10 @@ export interface RedeemStatusResponse {
   created_at: string | null;
   updated_at: string | null;
   real_winning_order_exists: boolean;
+  settlement_resolution_status: string | null;
+  settlement_resolution_source: string | null;
+  official_winning_outcome: string | null;
+  internal_winning_outcome: string | null;
   reasons: string[];
 }
 

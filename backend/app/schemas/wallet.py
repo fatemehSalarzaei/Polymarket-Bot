@@ -63,5 +63,6 @@ class WalletReadinessResponse(BaseModel):
     funder_address_configured: bool
     signature_type: int | None = None
     chain_id: int | None = None
+    redeem_flow_status: str = "REDEEM_FLOW_UNSUPPORTED_FOR_WALLET_TYPE"
     trading_ready: bool
     blocking_reasons: list[str] = Field(default_factory=list)

@@ -229,6 +229,62 @@ async def test_redeem_amount_is_computed_from_balance_delta(sessionmaker: async_
 
     assert result.status == "REDEEM_CONFIRMED"
     assert result.amount_redeemed == Decimal("2.5")
+    assert result.record is not None
+    assert result.record.raw_response["collateral_token_address"] == "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+
+
+@pytest.mark.asyncio
+async def test_missing_balance_after_keeps_amount_none_with_reason(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        result = await RedeemService(
+            settings=_settings(redeem_dry_run=False, real_order_dry_run=False),
+            adapter=MissingBalanceAfterRedeemAdapter(wallet_address="0x0000000000000000000000000000000000000001"),
+            geoblock_client=FakeGeoblockClient(blocked=False),
+        ).redeem_winning_position(session, market, settlement)
+        await session.commit()
+
+    assert result.status == "REDEEM_CONFIRMED"
+    assert result.amount_redeemed is None
+    assert result.record is not None
+    assert result.record.raw_response["amount_redeemed_unavailable_reason"] == "BALANCE_AFTER_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_reverted_redeem_transaction_does_not_store_amount(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        result = await RedeemService(
+            settings=_settings(redeem_dry_run=False, real_order_dry_run=False),
+            adapter=RevertedRedeemAdapter(wallet_address="0x0000000000000000000000000000000000000001"),
+            geoblock_client=FakeGeoblockClient(blocked=False),
+        ).redeem_winning_position(session, market, settlement)
+        await session.commit()
+
+    assert result.status == "REDEEM_FAILED"
+    assert result.amount_redeemed is None
+    assert result.error_message == "REDEEM_TX_REVERTED"
+
+
+@pytest.mark.asyncio
+async def test_non_dry_run_missing_collateral_token_blocks_redeem(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        settings = _settings(redeem_dry_run=False, real_order_dry_run=False).model_copy(
+            update={"collateral_token_address": "", "pusd_contract_address": ""}
+        )
+        eligibility = await _service(settings=settings).check_redeem_eligibility(session, market, settlement)
+
+    assert "COLLATERAL_TOKEN_MISSING" in eligibility.reasons
 
 
 def test_redeem_api_endpoints_return_statuses(
@@ -354,6 +410,36 @@ class BalanceDeltaRedeemAdapter(SafeDryRunRedeemAdapter):
             self._called = True
             return Decimal("10")
         return Decimal("12.5")
+
+
+class MissingBalanceAfterRedeemAdapter(SafeDryRunRedeemAdapter):
+    async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
+        return RedeemAdapterResult(
+            submitted=True,
+            confirmed=True,
+            tx_hash="0xtx",
+            raw_response={"condition_id": condition_id, "index_sets": index_sets},
+        )
+
+    async def get_pusd_balance(self, wallet_address: str) -> Decimal | None:
+        if not hasattr(self, "_called"):
+            self._called = True
+            return Decimal("10")
+        return None
+
+
+class RevertedRedeemAdapter(SafeDryRunRedeemAdapter):
+    async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
+        return RedeemAdapterResult(
+            submitted=True,
+            confirmed=False,
+            tx_hash="0xtx",
+            raw_response={"condition_id": condition_id, "index_sets": index_sets},
+            error_message="REDEEM_TX_REVERTED",
+        )
+
+    async def get_pusd_balance(self, wallet_address: str) -> Decimal | None:
+        return Decimal("10")
 
 
 def _settings(

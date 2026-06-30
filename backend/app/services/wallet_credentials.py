@@ -339,6 +339,7 @@ async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = N
             private_key_decryptable=False,
             funder_address_configured=False,
             trading_ready=False,
+            redeem_flow_status="REDEEM_FLOW_UNSUPPORTED_FOR_WALLET_TYPE",
             blocking_reasons=blocking_reasons,
         )
 
@@ -356,6 +357,9 @@ async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = N
         blocking_reasons.append("WALLET_CHAIN_ID_INVALID")
     if credential.signature_type == 3 and not credential.funder_address:
         blocking_reasons.append("WALLET_FUNDER_REQUIRED")
+    redeem_flow_status = "DIRECT_WALLET_REDEEM_SUPPORTED"
+    if credential.funder_address and credential.funder_address.lower() != credential.wallet_address.lower():
+        redeem_flow_status = "PROXY_WALLET_REDEEM_REQUIRES_RELAYER"
 
     return WalletReadinessResponse(
         wallet_configured=True,
@@ -366,6 +370,7 @@ async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = N
         funder_address_configured=bool(credential.funder_address),
         signature_type=credential.signature_type,
         chain_id=credential.chain_id,
+        redeem_flow_status=redeem_flow_status,
         trading_ready=not blocking_reasons,
         blocking_reasons=list(dict.fromkeys(blocking_reasons)),
     )

@@ -14,8 +14,13 @@ class FakeGammaClient:
         return self.payload
 
 
+class FailingGammaClient:
+    async def get_event_by_slug(self, event_slug: str) -> dict:
+        raise RuntimeError("gamma unavailable")
+
+
 @pytest.mark.asyncio
-async def test_official_resolution_requires_closed_resolved_single_winner() -> None:
+async def test_official_resolution_parses_resolved_up_market() -> None:
     resolution = await PolymarketResolutionClient(
         FakeGammaClient(
             {
@@ -36,6 +41,30 @@ async def test_official_resolution_requires_closed_resolved_single_winner() -> N
     assert resolution.official is True
     assert resolution.status == "official"
     assert resolution.winning_outcome == "UP"
+
+
+@pytest.mark.asyncio
+async def test_official_resolution_parses_resolved_down_market() -> None:
+    resolution = await PolymarketResolutionClient(
+        FakeGammaClient(
+            {
+                "closed": True,
+                "markets": [
+                    {
+                        "conditionId": "condition-1",
+                        "closed": True,
+                        "automaticallyResolved": True,
+                        "outcomes": '["Up", "Down"]',
+                        "outcomePrices": '["0", "1"]',
+                    }
+                ],
+            }
+        )
+    ).get_official_resolution(_market())
+
+    assert resolution.official is True
+    assert resolution.status == "official"
+    assert resolution.winning_outcome == "DOWN"
 
 
 @pytest.mark.asyncio
@@ -63,6 +92,29 @@ async def test_official_resolution_rejects_open_market_even_with_prices() -> Non
 
 
 @pytest.mark.asyncio
+async def test_official_resolution_rejects_active_unresolved_market() -> None:
+    resolution = await PolymarketResolutionClient(
+        FakeGammaClient(
+            {
+                "closed": False,
+                "markets": [
+                    {
+                        "conditionId": "condition-1",
+                        "closed": False,
+                        "active": True,
+                        "outcomes": ["Up", "Down"],
+                        "outcomePrices": ["0.52", "0.48"],
+                    }
+                ],
+            }
+        )
+    ).get_official_resolution(_market())
+
+    assert resolution.official is False
+    assert resolution.reason == "EVENT_NOT_CLOSED"
+
+
+@pytest.mark.asyncio
 async def test_official_resolution_rejects_ambiguous_winner() -> None:
     resolution = await PolymarketResolutionClient(
         FakeGammaClient(
@@ -83,6 +135,26 @@ async def test_official_resolution_rejects_ambiguous_winner() -> None:
 
     assert resolution.official is False
     assert resolution.reason == "OFFICIAL_WINNING_OUTCOME_NOT_AVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_official_resolution_handles_malformed_gamma_response() -> None:
+    resolution = await PolymarketResolutionClient(FakeGammaClient({"closed": True, "markets": "bad"})).get_official_resolution(
+        _market()
+    )
+
+    assert resolution.official is False
+    assert resolution.status == "official_lookup_failed"
+    assert resolution.reason == "MARKET_NOT_FOUND_IN_GAMMA_EVENT"
+
+
+@pytest.mark.asyncio
+async def test_official_resolution_handles_gamma_lookup_failure() -> None:
+    resolution = await PolymarketResolutionClient(FailingGammaClient()).get_official_resolution(_market())
+
+    assert resolution.official is False
+    assert resolution.status == "official_lookup_failed"
+    assert resolution.reason == "OFFICIAL_RESOLUTION_LOOKUP_FAILED"
 
 
 def _market() -> Market:
