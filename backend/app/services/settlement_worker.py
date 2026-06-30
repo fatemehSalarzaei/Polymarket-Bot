@@ -85,6 +85,12 @@ class SettlementWorker:
         paper_pnl = _calculate_pnl(orders, winning_outcome, mode="paper")
         real_pnl = _calculate_pnl(orders, winning_outcome, mode="real")
         official = bool(official_resolution and official_resolution.official)
+        official_status = official_resolution.status if official_resolution else "not_checked"
+        official_checked_at = datetime.now(UTC)
+        official_raw_response = official_resolution.raw_response if official_resolution else {}
+        internal_outcome = internal_winning_outcome or winning_outcome
+        official_winning_outcome = winning_outcome if official else None
+        resolution_source = "polymarket_gamma" if official else "internal_chainlink_calculation"
         settlement = Settlement(
             user_id=user_id,
             market_id=market.id,
@@ -94,17 +100,24 @@ class SettlementWorker:
             resolved_at=resolved_at or datetime.now(UTC),
             paper_pnl=paper_pnl,
             real_pnl=real_pnl,
+            official_resolution_status=official_status,
+            official_winning_outcome=official_winning_outcome,
+            internal_winning_outcome=internal_outcome,
+            resolution_source=resolution_source,
+            official_resolution_checked_at=official_checked_at if official_resolution else None,
+            official_resolution_raw_response=official_raw_response,
             raw_resolution={
                 "winning_outcome": winning_outcome,
-                "official_winning_outcome": winning_outcome if official else None,
-                "internal_winning_outcome": internal_winning_outcome or winning_outcome,
-                "internal_predicted_winning_outcome": internal_winning_outcome or winning_outcome,
+                "official_winning_outcome": official_winning_outcome,
+                "internal_winning_outcome": internal_outcome,
+                "internal_predicted_winning_outcome": internal_outcome,
                 "official": official,
                 "resolved_by_polymarket": official,
-                "resolution_source": "polymarket_gamma" if official else "internal_chainlink_calculation",
-                "resolution_checked_at": datetime.now(UTC).isoformat(),
+                "official_resolution_status": official_status,
+                "resolution_source": resolution_source,
+                "resolution_checked_at": official_checked_at.isoformat(),
                 "condition_id": market.condition_id,
-                "official_resolution": official_resolution.raw_response if official_resolution else None,
+                "official_resolution": official_raw_response if official_resolution else None,
                 "official_resolution_reason": official_resolution.reason if official_resolution else "NOT_CHECKED",
             },
         )
@@ -122,7 +135,7 @@ class SettlementWorker:
                 "official_resolution_lookup_failed",
                 extra={"market_id": market.id, "exception_class": type(exc).__name__},
             )
-            return OfficialResolution(False, reason="OFFICIAL_RESOLUTION_LOOKUP_FAILED")
+            return OfficialResolution(False, reason="OFFICIAL_RESOLUTION_LOOKUP_FAILED", status="official_lookup_failed")
 
 
 def _calculate_pnl(orders: list[Order], winning_outcome: str, *, mode: str) -> Decimal:
@@ -218,6 +231,8 @@ def _decimal_or_none(value) -> Decimal | None:
 
 
 def _has_official_resolution(settlement: Settlement) -> bool:
+    if getattr(settlement, "official_resolution_status", None) == "official":
+        return True
     raw_resolution = settlement.raw_resolution or {}
     return bool(raw_resolution.get("official") or raw_resolution.get("resolved_by_polymarket"))
 

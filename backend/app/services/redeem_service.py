@@ -17,6 +17,7 @@ from app.schemas.redeem import RedeemAttemptResult, RedeemEligibilityResponse, R
 from app.services.geoblock import GeoblockClient
 from app.services.order_lifecycle import is_real_order_reconciled_with_match
 from app.services.polymarket_redeem_adapter import PolymarketRedeemAdapter, build_redeem_adapter_from_stored_wallet
+from app.services.runtime_gate import is_bot_running
 from app.services.settings import get_or_create_strategy_settings
 
 
@@ -65,6 +66,8 @@ class RedeemService:
             reasons.append("CONDITION_ID_MISSING")
         if not winning_outcome:
             reasons.append("WINNING_OUTCOME_MISSING")
+        if not await is_bot_running(session):
+            reasons.append("BOT_STOPPED")
 
         confirmed = await _get_existing_redeem_record(session, market=market, status="REDEEM_CONFIRMED", user_id=user_id)
         if confirmed is not None:
@@ -90,10 +93,25 @@ class RedeemService:
             reasons.append("REDEEM_DISABLED")
         if strategy_settings.kill_switch_active or self._settings.kill_switch_active:
             reasons.append("KILL_SWITCH_ACTIVE")
+        if not self._settings.polygon_rpc_url and not (self._settings.redeem_dry_run or self._settings.real_order_dry_run):
+            reasons.append("POLYGON_RPC_URL_MISSING")
+        if not self._settings.resolved_collateral_token_address and not (self._settings.redeem_dry_run or self._settings.real_order_dry_run):
+            reasons.append("COLLATERAL_TOKEN_MISSING")
+        if not self._settings.conditional_tokens_contract_address and not (self._settings.redeem_dry_run or self._settings.real_order_dry_run):
+            reasons.append("CONDITIONAL_TOKENS_CONTRACT_MISSING")
         if not await self._credentials_configured(session, user_id=user_id):
             reasons.append("CREDENTIALS_MISSING")
 
         if "CREDENTIALS_MISSING" not in reasons:
+            adapter = await self._adapter_for_user(session, user_id=user_id)
+            redeem_flow_supported = getattr(adapter, "redeem_flow_supported", True)
+            redeem_flow_blocking_reason = getattr(adapter, "redeem_flow_blocking_reason", None)
+            if (
+                not (self._settings.redeem_dry_run or self._settings.real_order_dry_run)
+                and not redeem_flow_supported
+                and redeem_flow_blocking_reason
+            ):
+                reasons.append(redeem_flow_blocking_reason)
             try:
                 geoblock_status = await self._geoblock_client.get_status()
             except Exception as exc:
@@ -147,7 +165,7 @@ class RedeemService:
             "condition_id": market.condition_id,
             "index_sets": [1, 2],
             "parent_collection_id": self._settings.ctf_parent_collection_id,
-            "pusd_contract_address": self._settings.pusd_contract_address,
+            "collateral_token_address": self._settings.resolved_collateral_token_address,
         }
 
         if not eligibility.eligible:
@@ -189,11 +207,13 @@ class RedeemService:
             record.raw_response = {"error": str(exc), "type": exc.__class__.__name__}
         else:
             record.tx_hash = result.tx_hash
-            record.amount_redeemed = result.amount_redeemed
             record.balance_before = balance_before
             record.balance_after = balance_after
-            record.raw_response = result.raw_response
+            record.amount_redeemed = _amount_redeemed_from_result(result, balance_before, balance_after)
+            record.raw_response = dict(result.raw_response)
             record.error_message = result.error_message
+            if result.amount_redeemed is None and record.amount_redeemed is None:
+                record.raw_response["amount_redeemed_unavailable"] = True
             if result.confirmed:
                 record.status = "REDEEM_CONFIRMED"
             elif result.submitted:
@@ -301,13 +321,29 @@ async def _credentials_configured(session: AsyncSession, *, user_id: int | None)
 
 
 def _has_official_resolution(settlement: Settlement) -> bool:
+    if getattr(settlement, "official_resolution_status", None) == "official":
+        return True
     raw_resolution = settlement.raw_resolution or {}
     return bool(
         raw_resolution.get("official")
-        or raw_resolution.get("official_resolution")
         or raw_resolution.get("resolved")
         or raw_resolution.get("resolved_by_polymarket")
     )
+
+
+def _amount_redeemed_from_result(
+    result,
+    balance_before: Decimal | None,
+    balance_after: Decimal | None,
+) -> Decimal | None:
+    if result.amount_redeemed is not None:
+        return result.amount_redeemed
+    if not (result.confirmed or result.submitted):
+        return None
+    if balance_before is None or balance_after is None:
+        return None
+    delta = balance_after - balance_before
+    return delta if delta >= 0 else None
 
 
 def _attempt_result_from_record(record: RedeemRecord, *, reasons: list[str] | None = None) -> RedeemAttemptResult:

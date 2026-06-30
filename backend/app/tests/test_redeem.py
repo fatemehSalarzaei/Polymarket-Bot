@@ -200,6 +200,37 @@ async def test_non_dry_run_not_implemented_is_stored_as_failed(sessionmaker: asy
     assert "redeemPositions" in (result.error_message or "")
 
 
+@pytest.mark.asyncio
+async def test_non_dry_run_missing_polygon_rpc_blocks_redeem(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        settings = _settings(redeem_dry_run=False, real_order_dry_run=False).model_copy(update={"polygon_rpc_url": ""})
+        eligibility = await _service(settings=settings).check_redeem_eligibility(session, market, settlement)
+
+    assert "POLYGON_RPC_URL_MISSING" in eligibility.reasons
+
+
+@pytest.mark.asyncio
+async def test_redeem_amount_is_computed_from_balance_delta(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market, settlement = await _seed_settlement(session)
+        await _seed_order(session, market, mode="real", outcome="UP", size_matched=Decimal("5"))
+        await session.commit()
+
+        result = await RedeemService(
+            settings=_settings(redeem_dry_run=False, real_order_dry_run=False),
+            adapter=BalanceDeltaRedeemAdapter(wallet_address="0x0000000000000000000000000000000000000001"),
+            geoblock_client=FakeGeoblockClient(blocked=False),
+        ).redeem_winning_position(session, market, settlement)
+        await session.commit()
+
+    assert result.status == "REDEEM_CONFIRMED"
+    assert result.amount_redeemed == Decimal("2.5")
+
+
 def test_redeem_api_endpoints_return_statuses(
     client: TestClient,
     sessionmaker: async_sessionmaker[AsyncSession],
@@ -306,6 +337,25 @@ class NotImplementedRedeemAdapter(SafeDryRunRedeemAdapter):
         raise NotImplementedError("Real provider must implement redeemPositions")
 
 
+class BalanceDeltaRedeemAdapter(SafeDryRunRedeemAdapter):
+    wallet_address = "0x0000000000000000000000000000000000000001"
+    wallet_credential_id = 12
+
+    async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
+        return RedeemAdapterResult(
+            submitted=True,
+            confirmed=True,
+            tx_hash="0xtx",
+            raw_response={"condition_id": condition_id, "index_sets": index_sets},
+        )
+
+    async def get_pusd_balance(self, wallet_address: str) -> Decimal | None:
+        if not hasattr(self, "_called"):
+            self._called = True
+            return Decimal("10")
+        return Decimal("12.5")
+
+
 def _settings(
     *,
     with_credentials: bool = True,
@@ -324,6 +374,7 @@ def _settings(
     return Settings(
         database_url="sqlite+aiosqlite:///unused.db",
         redis_url="redis://localhost:6379/0",
+        polygon_rpc_url="https://polygon-rpc.example",
         redeem_enabled=True,
         redeem_dry_run=redeem_dry_run,
         real_order_dry_run=real_order_dry_run,

@@ -24,6 +24,8 @@ class PolymarketRedeemAdapter(Protocol):
     credentials_configured: bool
     wallet_address: str | None
     wallet_credential_id: int | None
+    redeem_flow_supported: bool
+    redeem_flow_blocking_reason: str | None
 
     async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult: ...
 
@@ -32,6 +34,8 @@ class PolymarketRedeemAdapter(Protocol):
 
 class SafeDryRunRedeemAdapter:
     credentials_configured = True
+    redeem_flow_supported = True
+    redeem_flow_blocking_reason = None
 
     def __init__(self, *, wallet_address: str | None = None, wallet_credential_id: int | None = None) -> None:
         self.wallet_address = wallet_address
@@ -68,6 +72,8 @@ class BackendOnlyPolymarketRedeemAdapter:
             and self._settings.polymarket_api_passphrase
             and self._settings.polymarket_funder_address
         )
+        self.redeem_flow_blocking_reason = _redeem_flow_blocking_reason(settings=self._settings, bundle=bundle)
+        self.redeem_flow_supported = self.redeem_flow_blocking_reason is None
 
     async def redeem(self, condition_id: str, index_sets: list[int]) -> RedeemAdapterResult:
         return await asyncio.to_thread(self._redeem_sync, condition_id, index_sets)
@@ -81,6 +87,18 @@ class BackendOnlyPolymarketRedeemAdapter:
                 submitted=False,
                 raw_response={},
                 error_message="POLYGON_RPC_URL_MISSING",
+            )
+        if not self._settings.resolved_collateral_token_address:
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={},
+                error_message="COLLATERAL_TOKEN_MISSING",
+            )
+        if not self._settings.conditional_tokens_contract_address:
+            return RedeemAdapterResult(
+                submitted=False,
+                raw_response={},
+                error_message="CONDITIONAL_TOKENS_CONTRACT_MISSING",
             )
         if self._bundle is None:
             return RedeemAdapterResult(
@@ -101,11 +119,11 @@ class BackendOnlyPolymarketRedeemAdapter:
         account = Account.from_key(self._bundle.private_key)
         from_address = Web3.to_checksum_address(account.address)
         funder_address = self._bundle.funder_address
-        if funder_address and funder_address.lower() != from_address.lower():
+        if self.redeem_flow_blocking_reason is not None:
             return RedeemAdapterResult(
                 submitted=False,
                 raw_response={"wallet_address": from_address, "funder_address": funder_address},
-                error_message="PROXY_WALLET_REDEEM_REQUIRES_RELAYER",
+                error_message=self.redeem_flow_blocking_reason,
             )
 
         web3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
@@ -113,7 +131,7 @@ class BackendOnlyPolymarketRedeemAdapter:
             address=Web3.to_checksum_address(self._settings.conditional_tokens_contract_address),
             abi=_CONDITIONAL_TOKENS_ABI,
         )
-        collateral = Web3.to_checksum_address(self._settings.pusd_contract_address)
+        collateral = Web3.to_checksum_address(self._settings.resolved_collateral_token_address)
         tx = ctf.functions.redeemPositions(
             collateral,
             bytes.fromhex(self._settings.ctf_parent_collection_id.removeprefix("0x")),
@@ -143,7 +161,7 @@ class BackendOnlyPolymarketRedeemAdapter:
                 "condition_id": condition_id,
                 "index_sets": index_sets,
                 "ctf_contract_address": self._settings.conditional_tokens_contract_address,
-                "collateral_token": self._settings.pusd_contract_address,
+                "collateral_token_address": self._settings.resolved_collateral_token_address,
             },
             error_message=None if confirmed else "REDEEM_TX_REVERTED",
         )
@@ -151,13 +169,15 @@ class BackendOnlyPolymarketRedeemAdapter:
     def _get_erc20_balance_sync(self, wallet_address: str) -> Decimal | None:
         if not self._settings.polygon_rpc_url:
             return None
+        if not self._settings.resolved_collateral_token_address:
+            return None
         try:
             from web3 import Web3
         except ImportError:
             return None
         web3 = Web3(Web3.HTTPProvider(self._settings.polygon_rpc_url))
         token = web3.eth.contract(
-            address=Web3.to_checksum_address(self._settings.pusd_contract_address),
+            address=Web3.to_checksum_address(self._settings.resolved_collateral_token_address),
             abi=_ERC20_ABI,
         )
         raw_balance = token.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call()
@@ -223,3 +243,15 @@ async def build_redeem_adapter_from_stored_wallet(session, *, user_id: int | Non
             wallet_credential_id=bundle.wallet_credential_id,
         )
     return BackendOnlyPolymarketRedeemAdapter(config, bundle=bundle)
+
+
+def _redeem_flow_blocking_reason(*, settings: Settings, bundle: TradingCredentialBundle | None) -> str | None:
+    if not settings.polygon_rpc_url:
+        return "POLYGON_RPC_URL_MISSING"
+    if not settings.resolved_collateral_token_address:
+        return "COLLATERAL_TOKEN_MISSING"
+    if not settings.conditional_tokens_contract_address:
+        return "CONDITIONAL_TOKENS_CONTRACT_MISSING"
+    if bundle is not None and bundle.funder_address and bundle.funder_address.lower() != bundle.wallet_address.lower():
+        return "PROXY_WALLET_REDEEM_REQUIRES_RELAYER"
+    return None

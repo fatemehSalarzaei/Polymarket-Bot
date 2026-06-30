@@ -21,6 +21,12 @@ class Settlement(Base):
     resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     paper_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     real_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
+    official_resolution_status: Mapped[str] = mapped_column(String(32), default="internal_only", nullable=False)
+    official_winning_outcome: Mapped[str | None] = mapped_column(String(16))
+    internal_winning_outcome: Mapped[str | None] = mapped_column(String(16))
+    resolution_source: Mapped[str] = mapped_column(String(64), default="internal_chainlink_calculation", nullable=False)
+    official_resolution_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    official_resolution_raw_response: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict, nullable=False)
     raw_resolution: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict, nullable=False)
 
     market = relationship("Market", back_populates="settlements")

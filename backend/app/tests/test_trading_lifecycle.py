@@ -151,7 +151,14 @@ async def test_successful_real_order_reconciles_settles_officially_and_redeems(
             official_resolution=OfficialResolution(True, "UP", raw_response={"mock": True}),
         )
         redeem_result = await RedeemService(
-            settings=get_settings().model_copy(update={"redeem_enabled": True, "redeem_dry_run": False, "real_order_dry_run": False}),
+            settings=get_settings().model_copy(
+                update={
+                    "redeem_enabled": True,
+                    "redeem_dry_run": False,
+                    "real_order_dry_run": False,
+                    "polygon_rpc_url": "https://polygon-rpc.example",
+                }
+            ),
             adapter=FakeRedeemAdapter(),
             geoblock_client=FakeGeoblock(blocked=False),
         ).redeem_winning_position(session, market, settlement)

@@ -56,6 +56,8 @@ class WalletTestDeriveResponse(BaseModel):
 
 class WalletReadinessResponse(BaseModel):
     wallet_configured: bool
+    wallet_address: str | None = None
+    funder_address: str | None = None
     api_credentials_configured: bool
     private_key_decryptable: bool
     funder_address_configured: bool

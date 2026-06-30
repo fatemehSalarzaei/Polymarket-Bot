@@ -40,10 +40,14 @@ class FakeGeoblockClient:
 
 @pytest.fixture(autouse=True)
 def settings_env(monkeypatch) -> AsyncIterator[None]:
+    import app.api.routes.trading as trading_routes
+
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("REAL_ORDER_DRY_RUN", "true")
     monkeypatch.setenv("TRADING_ENABLED", "false")
     monkeypatch.setenv("REAL_TRADING_CONFIRMATION_ENABLED", "false")
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.example")
+    monkeypatch.setattr(trading_routes, "clob_sdk_import_error", lambda: None)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -173,6 +177,40 @@ def test_sdk_import_failure_blocks_readiness(
     assert body["trading_ready"] is False
     assert "POLYMARKET_SDK_MISSING" in body["blocking_reasons"]
     assert "POLYMARKET_SDK_MISSING" in body["real_trading_blocking_reasons"]
+
+
+def test_proxy_wallet_blocks_real_redeem_readiness(
+    client: TestClient,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("REAL_ORDER_DRY_RUN", "false")
+    monkeypatch.setenv("TRADING_ENABLED", "true")
+    monkeypatch.setenv("REAL_TRADING_CONFIRMATION_ENABLED", "true")
+    get_settings.cache_clear()
+    app.dependency_overrides[get_geoblock_client] = lambda: FakeGeoblockClient(blocked=False)
+
+    async def seed() -> None:
+        async with sessionmaker() as session:
+            await configure_wallet(
+                WalletConfigureRequest(
+                    private_key=PRIVATE_KEY,
+                    funder_address="0x0000000000000000000000000000000000000002",
+                    signature_type=3,
+                ),
+                session,
+                deriver=FakeCredentialDeriver(),
+            )
+
+    asyncio.run(seed())
+
+    response = client.get("/api/trading/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["wallet_redeem_flow_supported"] is False
+    assert body["wallet_redeem_flow_blocking_reason"] == "PROXY_WALLET_REDEEM_REQUIRES_RELAYER"
+    assert "PROXY_WALLET_REDEEM_REQUIRES_RELAYER" in body["real_trading_blocking_reasons"]
 
 
 def _seed_ready_wallet(sessionmaker: async_sessionmaker[AsyncSession]) -> None:

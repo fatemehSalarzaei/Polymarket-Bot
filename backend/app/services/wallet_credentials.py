@@ -333,6 +333,8 @@ async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = N
         blocking_reasons.append("WALLET_CONFIG_MISSING")
         return WalletReadinessResponse(
             wallet_configured=False,
+            wallet_address=None,
+            funder_address=None,
             api_credentials_configured=False,
             private_key_decryptable=False,
             funder_address_configured=False,
@@ -357,6 +359,8 @@ async def get_wallet_readiness(session: AsyncSession, *, user_id: int | None = N
 
     return WalletReadinessResponse(
         wallet_configured=True,
+        wallet_address=credential.wallet_address,
+        funder_address=credential.funder_address,
         api_credentials_configured=api_credentials_configured,
         private_key_decryptable=private_key_decryptable,
         funder_address_configured=bool(credential.funder_address),
@@ -578,10 +582,13 @@ def _sdk_version() -> str | None:
 def clob_sdk_import_error() -> str | None:
     if sys.modules.get("py_clob_client_v2") is not None:
         return None
-    if importlib.util.find_spec("py_clob_client.client") is not None:
-        return None
-    if importlib.util.find_spec("py_clob_client_v2") is not None:
-        return None
+    try:
+        if importlib.util.find_spec("py_clob_client.client") is not None:
+            return None
+        if importlib.util.find_spec("py_clob_client_v2") is not None:
+            return None
+    except ModuleNotFoundError:
+        return "POLYMARKET_SDK_MISSING"
     return "POLYMARKET_SDK_MISSING"
 
 

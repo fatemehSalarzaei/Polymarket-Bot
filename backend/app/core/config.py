@@ -56,9 +56,14 @@ class Settings(BaseSettings):
     max_daily_loss_usd: float = 1
     max_data_age_seconds: int = 10
     default_order_type: str = Field(default="FAK", pattern="^(GTC|FOK|GTD|FAK)$")
+    collateral_token_address: str = ""
     pusd_contract_address: str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
     conditional_tokens_contract_address: str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
     ctf_parent_collection_id: str = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+    @property
+    def resolved_collateral_token_address(self) -> str:
+        return self.collateral_token_address or self.pusd_contract_address
 
 
 @lru_cache

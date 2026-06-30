@@ -15,6 +15,11 @@ class OfficialResolution:
     winning_outcome: str | None = None
     raw_response: dict[str, Any] = field(default_factory=dict)
     reason: str | None = None
+    status: str = "official_missing"
+
+    def __post_init__(self) -> None:
+        if self.official and self.status != "official":
+            object.__setattr__(self, "status", "official")
 
 
 class PolymarketResolutionClient:
@@ -26,28 +31,43 @@ class PolymarketResolutionClient:
         payload = await self._gamma_client.get_event_by_slug(market.event_slug)
         market_payload = _select_market_payload(payload, market)
         if market_payload is None:
-            return OfficialResolution(False, raw_response=payload, reason="MARKET_NOT_FOUND_IN_GAMMA_EVENT")
+            return OfficialResolution(
+                False,
+                raw_response={
+                    "event": _public_resolution_payload(payload),
+                    "market": None,
+                    "checked_at": datetime.now(UTC).isoformat(),
+                },
+                reason="MARKET_NOT_FOUND_IN_GAMMA_EVENT",
+                status="official_lookup_failed",
+            )
 
-        closed = bool(payload.get("closed") or market_payload.get("closed") or market_payload.get("archived"))
+        event_closed = _truthy(payload.get("closed") or payload.get("archived"))
+        market_closed = _truthy(market_payload.get("closed") or market_payload.get("archived"))
+        official_resolved = _officially_resolved(payload) or _officially_resolved(market_payload)
         outcome = _extract_winning_outcome(market_payload) or _extract_winning_outcome(payload)
-        if closed and outcome in {"UP", "DOWN"}:
+        raw_response = {
+            "event": _public_resolution_payload(payload),
+            "market": _public_resolution_payload(market_payload),
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        if event_closed and market_closed and official_resolved and outcome in {"UP", "DOWN"}:
             return OfficialResolution(
                 True,
                 winning_outcome=outcome,
-                raw_response={
-                    "event": _public_resolution_payload(payload),
-                    "market": _public_resolution_payload(market_payload),
-                    "checked_at": datetime.now(UTC).isoformat(),
-                },
+                raw_response=raw_response,
+                status="official",
             )
         return OfficialResolution(
             False,
-            raw_response={
-                "event": _public_resolution_payload(payload),
-                "market": _public_resolution_payload(market_payload),
-                "checked_at": datetime.now(UTC).isoformat(),
-            },
-            reason="OFFICIAL_WINNING_OUTCOME_NOT_AVAILABLE",
+            raw_response=raw_response,
+            reason=_missing_reason(
+                event_closed=event_closed,
+                market_closed=market_closed,
+                official_resolved=official_resolved,
+                outcome=outcome,
+            ),
+            status="official_missing",
         )
 
 
@@ -85,6 +105,7 @@ def _extract_winning_outcome(payload: dict[str, Any]) -> str | None:
     outcomes = _coerce_list(payload.get("outcomes"))
     prices = _coerce_list(payload.get("outcomePrices") or payload.get("outcome_prices"))
     if outcomes and prices and len(outcomes) == len(prices):
+        winners: list[str] = []
         for outcome, price in zip(outcomes, prices, strict=False):
             try:
                 numeric_price = float(price)
@@ -92,7 +113,10 @@ def _extract_winning_outcome(payload: dict[str, Any]) -> str | None:
                 continue
             normalized = str(outcome).strip().upper()
             if normalized in {"UP", "DOWN"} and numeric_price >= 0.999:
-                return normalized
+                winners.append(normalized)
+        unique_winners = list(dict.fromkeys(winners))
+        if len(unique_winners) == 1:
+            return unique_winners[0]
     return None
 
 
@@ -119,11 +143,49 @@ def _public_resolution_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "closed",
         "archived",
         "active",
+        "acceptingOrders",
+        "automaticallyResolved",
+        "closedTime",
         "outcomes",
         "outcomePrices",
+        "umaResolutionStatus",
+        "umaResolutionStatuses",
+        "resolutionStatus",
         "winningOutcome",
         "outcome",
         "resolution",
         "resolvedOutcome",
     }
     return {key: value for key, value in payload.items() if key in allowed}
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "resolved", "closed"}
+    return bool(value)
+
+
+def _officially_resolved(payload: dict[str, Any]) -> bool:
+    status_values = []
+    for key in ("umaResolutionStatus", "resolutionStatus"):
+        value = payload.get(key)
+        if value is not None:
+            status_values.append(value)
+    statuses = _coerce_list(payload.get("umaResolutionStatuses"))
+    if statuses:
+        status_values.extend(statuses)
+    if any(str(value).strip().lower() == "resolved" for value in status_values):
+        return True
+    return bool(payload.get("automaticallyResolved") or payload.get("closedTime"))
+
+
+def _missing_reason(*, event_closed: bool, market_closed: bool, official_resolved: bool, outcome: str | None) -> str:
+    if not event_closed:
+        return "EVENT_NOT_CLOSED"
+    if not market_closed:
+        return "MARKET_NOT_CLOSED"
+    if not official_resolved:
+        return "OFFICIAL_RESOLUTION_STATUS_MISSING"
+    if outcome not in {"UP", "DOWN"}:
+        return "OFFICIAL_WINNING_OUTCOME_NOT_AVAILABLE"
+    return "OFFICIAL_RESOLUTION_MISSING"
