@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     admin_email: str = ""
     admin_username: str = "admin"
     admin_password_hash: str = ""
+    cors_allowed_origins: str = "http://localhost:3000"
 
     polymarket_clob_host: AnyHttpUrl = "https://clob.polymarket.com"
     polymarket_gamma_host: AnyHttpUrl = "https://gamma-api.polymarket.com"

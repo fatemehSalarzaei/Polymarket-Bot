@@ -1,91 +1,85 @@
+version: "3.9"
+
+x-backend-common: &backend-common
+  image: registry.zaris-dev.ir/polymarket-bot/back:${IMAGE_TAG:-latest}
+  env_file:
+    - .env
+  environment:
+    APP_ENV: ${APP_ENV:-production}
+    DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://polymarket:${POSTGRES_PASSWORD}@postgres:5432/polymarket_bot}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+
+    # Runtime CORS/domain config
+    CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+
+    # Trading safety defaults - keep real trading disabled unless explicitly enabled in .env
+    TRADING_ENABLED: ${TRADING_ENABLED:-false}
+    REAL_TRADING_CONFIRMATION_ENABLED: ${REAL_TRADING_CONFIRMATION_ENABLED:-false}
+    REAL_ORDER_DRY_RUN: ${REAL_ORDER_DRY_RUN:-true}
+    REDEEM_ENABLED: ${REDEEM_ENABLED:-false}
+    REDEEM_DRY_RUN: ${REDEEM_DRY_RUN:-true}
+    PAPER_TRADING_ENABLED: ${PAPER_TRADING_ENABLED:-true}
+    KILL_SWITCH_ACTIVE: ${KILL_SWITCH_ACTIVE:-false}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: always
+  networks:
+    - polymarket-bot-network
+
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: polymarket_bot
-      POSTGRES_USER: polymarket
-      POSTGRES_PASSWORD: polymarket
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U polymarket -d polymarket_bot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
-    build:
-      context: ./backend
-    env_file:
-      - ./.env.example
-    environment:
-      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
-      REDIS_URL: redis://redis:6379/0
-      TRADING_ENABLED: "false"
+    <<: *backend-common
+    container_name: polymarket_backend_web
+    command: >
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1}"
     ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   celery_worker:
-    build:
-      context: ./backend
-    env_file:
-      - ./.env.example
-    environment:
-      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
-      REDIS_URL: redis://redis:6379/0
-      TRADING_ENABLED: "false"
-      REAL_ORDER_DRY_RUN: "true"
-    command: celery -A app.celery_app.celery_app worker --loglevel=INFO
+    <<: *backend-common
+    container_name: polymarket_backend_celery_worker
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --concurrency=${CELERY_CONCURRENCY:-2}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
 
   celery_beat:
-    build:
-      context: ./backend
-    env_file:
-      - ./.env.example
-    environment:
-      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
-      REDIS_URL: redis://redis:6379/0
-      TRADING_ENABLED: "false"
-      REAL_ORDER_DRY_RUN: "true"
-    command: celery -A app.celery_app.celery_app beat --loglevel=INFO
+    <<: *backend-common
+    container_name: polymarket_backend_celery_beat
+    command: >
+      celery -A app.celery_app.celery_app beat
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend:
+        condition: service_healthy
 
   realtime_runner:
-    build:
-      context: ./backend
-    env_file:
-      - ./.env.example
-    environment:
-      DATABASE_URL: postgresql+asyncpg://polymarket:polymarket@postgres:5432/polymarket_bot
-      REDIS_URL: redis://redis:6379/0
-      TRADING_ENABLED: "false"
-      REAL_ORDER_DRY_RUN: "true"
+    <<: *backend-common
+    container_name: polymarket_backend_realtime_runner
     command: python -m app.workers.realtime_runner
     depends_on:
       postgres:
@@ -93,18 +87,84 @@ services:
       redis:
         condition: service_healthy
       backend:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
-    build:
-      context: ./frontend
+    image: registry.zaris-dev.ir/polymarket-bot/front:${IMAGE_TAG:-latest}
+    container_name: polymarket_frontend
+    env_file:
+      - .env
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
-      NEXT_PUBLIC_WS_URL: ws://localhost:8000/ws/dashboard
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
 
-volumes:
-  postgres_data:
+      # These values stay in docker-compose/.env, not in the Docker image.
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.example.com/api}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://api.example.com/ws/dashboard}
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    restart: always
+    networks:
+      - polymarket-bot-network
+
+  postgres:
+    image: registry.zaris-dev.ir/db/postgres:16-alpine
+    container_name: polymarket_backend_db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-polymarket_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-polymarket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-polymarket} -d ${POSTGRES_DB:-polymarket_bot}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+    networks:
+      - polymarket-bot-network
+
+  redis:
+    image: registry.zaris-dev.ir/db/redis:7.4.0-alpine
+    container_name: polymarket_backend_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - ./redis_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: always
+    networks:
+      - polymarket-bot-network
+
+networks:
+  polymarket-bot-network:
+    driver: bridge

@@ -29,9 +29,15 @@ settings = get_settings()
 app = FastAPI(title="Polymarket BTC Up/Down Bot", version="0.1.0")
 logger = logging.getLogger(__name__)
 
+
+def _cors_allowed_origins() -> list[str]:
+    origins = [origin.strip() for origin in settings.cors_allowed_origins.split(",")]
+    return [origin for origin in origins if origin]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
