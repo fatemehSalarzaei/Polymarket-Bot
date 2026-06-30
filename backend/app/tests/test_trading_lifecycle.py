@@ -148,6 +148,7 @@ async def test_successful_real_order_reconciles_settles_officially_and_redeems(
         assert readiness.kill_switch_active is False
         assert readiness.wallet_configured is True
         assert readiness.api_credentials_configured is True
+        assert readiness.collateral_token_address == get_settings().resolved_collateral_token_address
         assert readiness.real_trading_ready is True
         assert readiness.wallet_redeem_flow_status == "DIRECT_WALLET_REDEEM_SUPPORTED"
 

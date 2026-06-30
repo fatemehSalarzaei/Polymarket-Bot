@@ -210,6 +210,7 @@ async def _readiness(
         sdk_import_ok=sdk_import_error is None,
         polygon_rpc_configured=bool(config.polygon_rpc_url),
         collateral_token_configured=bool(config.resolved_collateral_token_address),
+        collateral_token_address=config.resolved_collateral_token_address or None,
         conditional_tokens_contract_configured=bool(config.conditional_tokens_contract_address),
         wallet_redeem_flow_supported=wallet_redeem_flow_supported,
         wallet_redeem_flow_status=wallet.redeem_flow_status,

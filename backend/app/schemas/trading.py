@@ -24,6 +24,7 @@ class TradingReadinessResponse(BaseModel):
     sdk_import_ok: bool
     polygon_rpc_configured: bool
     collateral_token_configured: bool
+    collateral_token_address: str | None = None
     conditional_tokens_contract_configured: bool
     wallet_redeem_flow_supported: bool
     wallet_redeem_flow_status: str
