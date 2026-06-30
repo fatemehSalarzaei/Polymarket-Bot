@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import importlib.util
 import logging
 import re
 import sys
@@ -572,6 +573,16 @@ def _sdk_version() -> str | None:
         except importlib.metadata.PackageNotFoundError:
             continue
     return None
+
+
+def clob_sdk_import_error() -> str | None:
+    if sys.modules.get("py_clob_client_v2") is not None:
+        return None
+    if importlib.util.find_spec("py_clob_client.client") is not None:
+        return None
+    if importlib.util.find_spec("py_clob_client_v2") is not None:
+        return None
+    return "POLYMARKET_SDK_MISSING"
 
 
 def _account_from_private_key(private_key: str):

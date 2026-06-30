@@ -3,6 +3,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import utc_now
+from app.core.config import Settings, get_settings
 from app.models.market import Market
 from app.models.order import Order
 from app.models.strategy import StrategyDecision
@@ -11,6 +12,7 @@ from app.schemas.strategy import StrategyContext, StrategyDecisionDTO
 from app.services.order_lifecycle import ORDER_STATUS_BLOCKED, ORDER_STATUS_DRY_RUN, ORDER_STATUS_SUBMITTED
 from app.services.polymarket_sdk import BackendOnlyClobSdkWrapper
 from app.services.risk_manager import RiskManager
+from app.services.runtime_gate import is_bot_running
 
 
 class ExecutionEngine:
@@ -20,10 +22,12 @@ class ExecutionEngine:
         sdk: BackendOnlyClobSdkWrapper,
         risk_manager: RiskManager | None = None,
         dry_run: bool = True,
+        settings: Settings | None = None,
     ) -> None:
         self._sdk = sdk
         self._risk_manager = risk_manager or RiskManager()
         self._dry_run = dry_run
+        self._settings = settings or get_settings()
 
     async def submit_real_order(
         self,
@@ -38,9 +42,14 @@ class ExecutionEngine:
         user_id: int | None = None,
         wallet_credential_id: int | None = None,
     ) -> RealOrderResult:
+        bot_running = await is_bot_running(session)
         risk = await self._risk_manager.validate_for_real_trade(
             decision,
             context,
+            bot_running=bot_running,
+            env_trading_enabled=self._settings.trading_enabled,
+            real_trading_confirmation_enabled=self._settings.real_trading_confirmation_enabled,
+            real_order_dry_run=self._dry_run,
             geoblock_blocked=geoblock_status.blocked,
             credentials_configured=self._sdk.credentials_configured,
             credentials_missing_reason=self._sdk.credentials_missing_reason,

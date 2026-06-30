@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.routes.bot import get_geoblock_client
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
@@ -305,7 +306,14 @@ async def _execute(
             wallet_configured=wallet_configured,
             api_credentials_configured=api_credentials_configured,
         )
-        engine = ExecutionEngine(sdk=sdk, dry_run=dry_run)
+        settings = get_settings().model_copy(
+            update={
+                "trading_enabled": not dry_run,
+                "real_trading_confirmation_enabled": not dry_run,
+                "real_order_dry_run": dry_run,
+            }
+        )
+        engine = ExecutionEngine(sdk=sdk, dry_run=dry_run, settings=settings)
         return await engine.submit_real_order(
             session,
             market=market,

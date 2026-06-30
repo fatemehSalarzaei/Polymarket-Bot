@@ -117,7 +117,18 @@ async def test_successful_real_order_reconciles_settles_officially_and_redeems(
         context = _context(market, paper_trading_enabled=False, trading_enabled=True)
         decision = await StrategyEngine().evaluate(context)
         persisted = await persist_strategy_decision(session, market=market, decision=decision)
-        submit_result = await ExecutionEngine(sdk=_sdk(FakeOrderSdk()), dry_run=False).submit_real_order(
+        real_enabled_settings = get_settings().model_copy(
+            update={
+                "trading_enabled": True,
+                "real_trading_confirmation_enabled": True,
+                "real_order_dry_run": False,
+            }
+        )
+        submit_result = await ExecutionEngine(
+            sdk=_sdk(FakeOrderSdk()),
+            dry_run=False,
+            settings=real_enabled_settings,
+        ).submit_real_order(
             session,
             market=market,
             persisted_decision=persisted,
@@ -180,6 +191,32 @@ async def test_geoblock_blocks_real_order(sessionmaker: async_sessionmaker[Async
 
 
 @pytest.mark.asyncio
+async def test_real_order_non_dry_run_requires_env_confirmation(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async with sessionmaker() as session:
+        market = _market("env-block")
+        session.add(market)
+        await session.flush()
+        context = _context(market, trading_enabled=True)
+        decision = await StrategyEngine().evaluate(context)
+        persisted = await persist_strategy_decision(session, market=market, decision=decision)
+        sdk = FakeOrderSdk()
+
+        result = await ExecutionEngine(sdk=_sdk(sdk), dry_run=False).submit_real_order(
+            session,
+            market=market,
+            persisted_decision=persisted,
+            decision=decision,
+            context=context,
+            geoblock_status=GeoblockStatus(blocked=False),
+        )
+
+    assert result.status == "BLOCKED"
+    assert "REAL_TRADING_ENV_DISABLED" in result.reasons
+    assert "REAL_TRADING_CONFIRMATION_DISABLED" in result.reasons
+    assert sdk.requests == []
+
+
+@pytest.mark.asyncio
 async def test_bot_stop_prevents_strategy_execution(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async with sessionmaker() as session:
         await set_bot_running(session, False)
@@ -201,7 +238,11 @@ async def test_real_trading_decision_works_when_paper_trading_disabled() -> None
 
 
 class FakeOrderSdk:
+    def __init__(self) -> None:
+        self.requests = []
+
     async def place_order(self, request):
+        self.requests.append(request)
         return PlaceOrderResult(
             submitted=True,
             status="SUBMITTED",

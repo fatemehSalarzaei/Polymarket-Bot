@@ -27,14 +27,24 @@ class RiskManager:
         decision: StrategyDecisionDTO,
         context: StrategyContext,
         *,
+        bot_running: bool = True,
+        env_trading_enabled: bool = False,
+        real_trading_confirmation_enabled: bool = False,
+        real_order_dry_run: bool = True,
         geoblock_blocked: bool | None = None,
         credentials_configured: bool = False,
         credentials_missing_reason: str | None = None,
         daily_loss_usd: Decimal = Decimal("0"),
     ) -> RiskResult:
         reasons: list[str] = []
+        if not bot_running:
+            reasons.append("BOT_STOPPED")
         if not context.trading_enabled:
             reasons.append("TRADING_DISABLED")
+        if not real_order_dry_run and not env_trading_enabled:
+            reasons.append("REAL_TRADING_ENV_DISABLED")
+        if not real_order_dry_run and not real_trading_confirmation_enabled:
+            reasons.append("REAL_TRADING_CONFIRMATION_DISABLED")
         if context.kill_switch_active:
             reasons.append("KILL_SWITCH_ACTIVE")
         if geoblock_blocked:

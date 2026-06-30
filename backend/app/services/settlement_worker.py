@@ -96,7 +96,9 @@ class SettlementWorker:
             real_pnl=real_pnl,
             raw_resolution={
                 "winning_outcome": winning_outcome,
+                "official_winning_outcome": winning_outcome if official else None,
                 "internal_winning_outcome": internal_winning_outcome or winning_outcome,
+                "internal_predicted_winning_outcome": internal_winning_outcome or winning_outcome,
                 "official": official,
                 "resolved_by_polymarket": official,
                 "resolution_source": "polymarket_gamma" if official else "internal_chainlink_calculation",

@@ -13,7 +13,7 @@ from app.schemas.trading import EnableTradingRequest, TradingReadinessResponse, 
 from app.services.auth import get_current_user, user_id_or_none
 from app.services.geoblock import GeoblockClient
 from app.services.settings import get_or_create_strategy_settings, serialize_strategy_settings
-from app.services.wallet_credentials import get_wallet_readiness
+from app.services.wallet_credentials import clob_sdk_import_error, get_wallet_readiness
 
 router = APIRouter()
 CONFIRM_PHRASE = "ENABLE REAL TRADING"
@@ -139,6 +139,10 @@ async def _readiness(
     real_reasons = list(wallet.blocking_reasons)
     warnings: list[str] = []
     config = get_settings()
+    sdk_import_error = clob_sdk_import_error()
+    if sdk_import_error is not None:
+        current_mode_reasons.append(sdk_import_error)
+        real_reasons.append(sdk_import_error)
     try:
         geoblock = await geoblock_client.get_status()
     except Exception:

@@ -155,6 +155,26 @@ def test_real_mode_can_enable_when_all_real_safety_checks_pass(
     assert enable_response.json()["trading_enabled"] is True
 
 
+def test_sdk_import_failure_blocks_readiness(
+    client: TestClient,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    monkeypatch,
+) -> None:
+    import app.api.routes.trading as trading_routes
+
+    monkeypatch.setattr(trading_routes, "clob_sdk_import_error", lambda: "POLYMARKET_SDK_MISSING")
+    app.dependency_overrides[get_geoblock_client] = lambda: FakeGeoblockClient(blocked=False)
+    _seed_ready_wallet(sessionmaker)
+
+    response = client.get("/api/trading/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["trading_ready"] is False
+    assert "POLYMARKET_SDK_MISSING" in body["blocking_reasons"]
+    assert "POLYMARKET_SDK_MISSING" in body["real_trading_blocking_reasons"]
+
+
 def _seed_ready_wallet(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async def seed() -> None:
         async with sessionmaker() as session:
